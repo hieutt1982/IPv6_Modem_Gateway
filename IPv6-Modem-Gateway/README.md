@@ -46,3 +46,14 @@ IP được lưu trong ứng dụng và tự điền ở lần mở sau. Có th�
 Mã nguồn Android Gradle project. Môi trường tạo gói này không có Android SDK/Gradle wrapper để biên dịch APK; ZIP là source project, chưa phải APK đã build.
 
 
+
+
+## Version 0.5.3 – IPv6[B] → IPv6[A] → IPv4[Modem]
+
+- Updates the listener when the Cellular global IPv6 address changes.
+- Uses a bounded worker pool to avoid unlimited thread creation under load.
+- Rejects ambiguous inbound HTTP framing that contains both `Transfer-Encoding` and `Content-Length`.
+- Keeps the existing reverse-proxy design: inbound listener bound to the Cellular IPv6 address; upstream socket explicitly created on the Wi-Fi `Network`.
+- No modem API, JSON, authentication API, CSRF, or vendor-specific request-body logic is added.
+
+The proxy still performs limited HTTP proxy compatibility handling (upstream Host/Origin/Referer and browser-facing redirect/cookie scope) so a modem web interface can be displayed through a different public origin. Request and response bodies are streamed without JSON parsing or application-level modification.

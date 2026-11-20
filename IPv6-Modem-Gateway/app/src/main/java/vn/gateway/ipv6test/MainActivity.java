@@ -38,6 +38,9 @@ import java.text.SimpleDateFormat;
 import java.util.Date;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.ThreadPoolExecutor;
+import java.util.concurrent.ArrayBlockingQueue;
+import java.util.concurrent.TimeUnit;
 import javax.net.ssl.SSLSocket;
 import javax.net.ssl.SSLSocketFactory;
 import javax.net.ssl.SSLContext;
@@ -75,7 +78,7 @@ public class MainActivity extends Activity {
     @Override public void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         initLogging();
-        log("APP", "onCreate version=0.5.1-configurable-modem-ip");
+        log("APP", "onCreate version=0.5.3-ipv6-to-ipv4-gateway");
         final Thread.UncaughtExceptionHandler oldHandler = Thread.getDefaultUncaughtExceptionHandler();
         Thread.setDefaultUncaughtExceptionHandler((thread, throwable) -> {
             logException("UNCAUGHT", throwable);
@@ -84,7 +87,17 @@ public class MainActivity extends Activity {
         cm = (ConnectivityManager) getSystemService(Context.CONNECTIVITY_SERVICE);
         android.content.SharedPreferences prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
         modemHost = prefs.getString(PREF_MODEM_IP, "192.168.1.1");
-        executor = Executors.newCachedThreadPool();
+        // Bounded worker pool: prevent unbounded thread creation from inbound clients.
+        // CallerRunsPolicy applies back-pressure to the accept loop when the queue is full.
+        executor = new ThreadPoolExecutor(
+                2, 16, 60L, TimeUnit.SECONDS,
+                new ArrayBlockingQueue<>(64),
+                r -> {
+                    Thread t = new Thread(r, "Gateway-Worker");
+                    t.setDaemon(true);
+                    return t;
+                },
+                new ThreadPoolExecutor.CallerRunsPolicy());
 
         // One persistent token is shared by the screen, copied token, URL and proxy auth.
         // Do not generate a new token on every Activity recreation/app launch.
@@ -402,15 +415,27 @@ public class MainActivity extends Activity {
         log("IPV6", "Đang đọc LinkProperties Cellular");
         if (cellularNetwork == null) return;
         LinkProperties lp = cm.getLinkProperties(cellularNetwork);
-        if (lp == null) return;
-        for (LinkAddress la : lp.getLinkAddresses()) {
-            InetAddress addr = la.getAddress();
-            if (addr instanceof Inet6Address && isGlobal((Inet6Address) addr)) {
-                cellularIpv6 = (Inet6Address) addr;
-                log("IPV6", "Tìm thấy IPv6 global: " + cellularIpv6.getHostAddress());
-                break;
+        Inet6Address found = null;
+        if (lp != null) {
+            for (LinkAddress la : lp.getLinkAddresses()) {
+                InetAddress addr = la.getAddress();
+                if (addr instanceof Inet6Address && isGlobal((Inet6Address) addr)) {
+                    found = (Inet6Address) addr;
+                    break;
+                }
             }
         }
+        Inet6Address previous = cellularIpv6;
+        boolean changed = previous == null ? found != null : !previous.equals(found);
+        if (changed) {
+            log("IPV6", "Địa chỉ Cellular thay đổi: " +
+                    (previous == null ? "(none)" : previous.getHostAddress()) + " -> " +
+                    (found == null ? "(none)" : found.getHostAddress()));
+            // Close the old listener so the next callback can bind the new global IPv6.
+            stopServerOnly();
+        }
+        cellularIpv6 = found;
+        if (found != null) log("IPV6", "IPv6 global hiện tại: " + found.getHostAddress());
         refreshDetails();
     }
 
@@ -561,6 +586,13 @@ public class MainActivity extends Activity {
                     try { contentLength = Long.parseLong(value); } catch (Exception ignored) { }
                 }
                 bufferedUpOut.write((name + ": " + value + "\r\n").getBytes(StandardCharsets.ISO_8859_1));
+            }
+            // Reject ambiguous HTTP message framing instead of forwarding a request
+            // containing both Transfer-Encoding and Content-Length.
+            if (chunkedRequest && contentLength >= 0) {
+                sendHttp(clientOut, "400 Bad Request", "Ambiguous request body framing.\n");
+                upstream.close();
+                return;
             }
             bufferedUpOut.write((hostHeader + "\r\nConnection: close\r\nAccept-Encoding: identity\r\n\r\n").getBytes(StandardCharsets.US_ASCII));
             bufferedUpOut.flush();
