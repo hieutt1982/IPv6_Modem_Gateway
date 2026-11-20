@@ -81,7 +81,7 @@ public class MainActivity extends Activity {
     @Override public void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         initLogging();
-        log("APP", "onCreate version=0.5.7-LOG-SCROLL-RED-TIME");
+        log("APP", "onCreate version=0.5.8-HTTP-SNIFF-TIMEOUT-FIX");
         final Thread.UncaughtExceptionHandler oldHandler = Thread.getDefaultUncaughtExceptionHandler();
         Thread.setDefaultUncaughtExceptionHandler((thread, throwable) -> {
             logException("UNCAUGHT", throwable);
@@ -147,7 +147,7 @@ public class MainActivity extends Activity {
         TextView title = makeText("IPv6 MODEM GATEWAY", 20, 0xFFFFFFFF);
         title.setTypeface(null, android.graphics.Typeface.BOLD);
         header.addView(title);
-        TextView subtitle = makeText("REVERSE PROXY • PHIÊN BẢN 0.5.7 LOG SCROLL + RED TIME", 11, 0xFFD5E3F2);
+        TextView subtitle = makeText("REVERSE PROXY • PHIÊN BẢN 0.5.8 HTTP SNIFF + LOG", 11, 0xFFD5E3F2);
         subtitle.setPadding(0, dp(5), 0, 0);
         header.addView(subtitle);
         root.addView(header);
@@ -525,10 +525,27 @@ public class MainActivity extends Activity {
         RequestTrace trace = new RequestTrace();
         trace.mark("01-INBOUND", "Nhận kết nối từ " + client.getInetAddress());
         try (Socket s = client) {
-            s.setSoTimeout(25000);
-            trace.mark("02-READ-REQUEST", "Bắt đầu đọc dòng HTTP đầu tiên");
+            // Listener này chỉ phục vụ HTTP thường. Một số trình duyệt/thành phần
+            // thử mở HTTPS vào cùng cổng; nhận diện TLS ClientHello sớm để không
+            // giữ worker 25 giây rồi mới timeout như trước.
+            s.setSoTimeout(5000);
+            trace.mark("02-READ-REQUEST", "Kiểm tra giao thức và chờ HTTP request line (timeout 5s)");
             java.io.BufferedInputStream in = new java.io.BufferedInputStream(s.getInputStream());
             OutputStream clientOut = s.getOutputStream();
+            in.mark(1);
+            int firstByte = in.read();
+            in.reset();
+            // TLS handshake record bắt đầu bằng 0x16; HTTP method bắt đầu bằng ASCII.
+            if (firstByte == 0x16) {
+                trace.mark("02-PROTOCOL", "CLIENT_PROTOCOL_MISMATCH: nhận TLS handshake trên cổng HTTP; đóng kết nối ngay");
+                return;
+            }
+            if (b1 < 0) {
+                trace.mark("02-READ-REQUEST", "Client đóng kết nối trước khi gửi dữ liệu");
+                return;
+            }
+            // Sau khi xác nhận không phải TLS, giữ timeout dài hơn cho request hợp lệ.
+            s.setSoTimeout(25000);
             String requestLine = readHttpLine(in);
             if (requestLine == null || requestLine.isEmpty()) {
                 trace.mark("02-READ-REQUEST", "Không nhận được request line; đóng kết nối");
