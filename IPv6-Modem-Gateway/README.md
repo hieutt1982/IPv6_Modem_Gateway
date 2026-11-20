@@ -1,37 +1,22 @@
-# IPv6 Modem Gateway – Test APK 0.1.0
+# IPv6 Modem Gateway – 0.3.0
 
-Ứng dụng Android Java thử nghiệm khả năng:
-- Yêu cầu duy trì mạng Cellular khi Wi-Fi đang bật.
-- Bind tiến trình thử nghiệm vào Cellular.
-- Mở TCP/HTTP listener IPv6 cổng 8080.
-- Android B kiểm tra kết nối bằng trình duyệt.
+## Thay đổi giao diện
+- Giao diện tiếng Việt gọn, chia rõ trạng thái, điều khiển, thông tin kết nối và địa chỉ kiểm tra.
+- Nút khởi động/dừng rõ ràng; có nút sao chép token.
+- Tăng khả năng đọc trên màn hình điện thoại và cho phép chọn sao chép thông tin.
 
-## Lưu ý quan trọng
-Đây là APK chẩn đoán, CHƯA phải Reverse Proxy modem. Nó không chuyển tiếp đến `192.168.1.1`.
+## Chức năng mạng được giữ từ 0.2.0
+- Theo dõi mạng Cellular và Wi-Fi đồng thời bằng hai NetworkCallback.
+- Mở IPv6 TCP listener gắn trực tiếp vào địa chỉ IPv6 Cellular.
+- Không bind toàn bộ tiến trình vào 4G; kết nối modem thử nghiệm dùng SocketFactory của Wi-Fi.
+- Endpoint `/TOKEN/modem-test` thử HTTPS tới `192.168.1.1:443` và vẫn xác thực chứng chỉ TLS theo mặc định Android.
 
-Android B truy cập:
-`http://[IPv6-CELLULAR-CUA-A]:8080/TOKEN`
+## Cách thử
+1. Cài APK trên Android A.
+2. Bật 4G và kết nối Wi-Fi tới modem.
+3. Mở app, nhấn **KHỞI ĐỘNG GATEWAY**.
+4. Trên Android B, mở URL IPv6 kiểm tra hiển thị trong ứng dụng.
+5. Mở URL có đuôi `/modem-test` để kiểm tra kết nối HTTPS từ A tới modem.
 
-Token được hiển thị trên màn hình Android A. HTTP không mã hóa; chỉ dùng chuỗi thử nghiệm, không gửi mật khẩu hay dữ liệu nhạy cảm. Dừng server sau khi kiểm tra.
-
-## Biên dịch trên GitHub
-1. Tạo repository GitHub mới.
-2. Upload toàn bộ nội dung thư mục này lên nhánh `main`.
-3. Mở tab Actions.
-4. Chọn workflow `Build Android APK`.
-5. Nhấn `Run workflow` hoặc chờ build tự chạy sau khi push.
-6. Mở lần chạy thành công, tải artifact `ipv6-gateway-test-debug`.
-
-## Biên dịch local
-Cần JDK 17, Android SDK Platform 35 và Gradle 8.9+:
-`gradle assembleDebug`
-
-APK đầu ra:
-`app/build/outputs/apk/debug/app-debug.apk`
-
-## Giới hạn kỹ thuật cần kiểm chứng trên thiết bị thật
-- Nhà mạng có thể chặn kết nối TCP chiều vào dù ping IPv6 thành công.
-- Android/OEM có thể giới hạn kết nối Cellular đồng thời Wi-Fi.
-- Bind process vào Cellular chỉ áp dụng cho tiến trình APK này; không thay đổi định tuyến toàn hệ thống.
-- Ứng dụng hiện chạy khi Activity còn sống; chưa có foreground service để chạy nền lâu dài.
-- Một số thiết bị có thể không chấp nhận bindProcessToNetwork hoặc không cho nhận kết nối inbound như kỳ vọng.
+## Giới hạn an toàn
+Bản 0.3.0 CHƯA phải reverse proxy giao diện quản trị. Nó chỉ kiểm tra riêng đường truyền B → A qua IPv6 và A → modem qua Wi-Fi/HTTPS. Không nhập hoặc gửi mật khẩu modem qua endpoint HTTP. Nếu modem dùng chứng chỉ tự ký, phép thử TLS có thể báo chứng chỉ không được Android tin cậy.

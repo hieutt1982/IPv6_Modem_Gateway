@@ -6,7 +6,7 @@
 
     <application
         android:allowBackup="false"
-        android:label="IPv6 Gateway Test"
+        android:label="IPv6 Modem Gateway"
         android:theme="@android:style/Theme.Material.Light.NoActionBar"
         android:usesCleartextTraffic="true"
         android:supportsRtl="true">
