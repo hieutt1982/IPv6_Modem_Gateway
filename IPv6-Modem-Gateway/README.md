@@ -1,4 +1,4 @@
-# IPv6 Modem Gateway 0.5.1 – Configurable Modem IPv4
+# IPv6 Modem Gateway 0.5.2 – Configurable Modem IPv4
 
 ## Mục tiêu
 Android B truy cập giao diện modem thông qua IPv6 Cellular của Android A. Android A nhận HTTP request trên IPv6, sau đó kết nối tới modem qua Wi-Fi bằng socket thuộc riêng `wifiNetwork`.
@@ -8,6 +8,7 @@ Android B truy cập giao diện modem thông qua IPv6 Cellular của Android A.
 - Kết nối upstream qua Wi-Fi riêng, không đổi default network của toàn ứng dụng.
 - Reverse proxy HTTP/1.1 cơ bản: method, path/query, header, body theo Content-Length/chunked; trả status, header và body modem.
 - HTTPS upstream tới IP modem IPv4 do người dùng nhập, cổng cố định `443`; bỏ xác thực chứng chỉ tự ký chỉ trên socket modem nội bộ.
+- Token truy cập được tạo một lần và lưu trong SharedPreferences; màn hình, nút sao chép token, URL truy cập và xác thực proxy dùng chung đúng một giá trị. Token không tự đổi khi mở lại ứng dụng.
 - Token truy cập riêng đổi thành cookie Gateway; không ghi password/cookie vào log.
 - Chuyển hướng Location và cookie Domain/Secure cơ bản.
 - Foreground Service và thông báo thường trực; giữ CPU/Wi-Fi lock khi người dùng bật Gateway để hỗ trợ hoạt động khi tắt màn hình/đóng Activity.

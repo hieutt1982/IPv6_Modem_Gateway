@@ -50,6 +50,7 @@ public class MainActivity extends Activity {
     private static final int MODEM_HTTPS_PORT = 443;
     private static final String PREFS_NAME = "gateway_settings";
     private static final String PREF_MODEM_IP = "modem_ip";
+    private static final String PREF_ACCESS_TOKEN = "access_token_v1";
     private volatile String modemHost = "192.168.1.1";
     private android.widget.EditText modemIpInput;
 
@@ -81,10 +82,18 @@ public class MainActivity extends Activity {
             if (oldHandler != null) oldHandler.uncaughtException(thread, throwable);
         });
         cm = (ConnectivityManager) getSystemService(Context.CONNECTIVITY_SERVICE);
-        modemHost = getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
-                .getString(PREF_MODEM_IP, "192.168.1.1");
+        android.content.SharedPreferences prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
+        modemHost = prefs.getString(PREF_MODEM_IP, "192.168.1.1");
         executor = Executors.newCachedThreadPool();
-        accessToken = makeToken();
+
+        // One persistent token is shared by the screen, copied token, URL and proxy auth.
+        // Do not generate a new token on every Activity recreation/app launch.
+        String savedToken = prefs.getString(PREF_ACCESS_TOKEN, null);
+        if (savedToken == null || !savedToken.matches("[0-9a-f]{32}")) {
+            savedToken = makeToken();
+            prefs.edit().putString(PREF_ACCESS_TOKEN, savedToken).commit();
+        }
+        accessToken = savedToken;
         buildUi();
     }
 
@@ -230,11 +239,7 @@ public class MainActivity extends Activity {
         Button copyButton = new Button(this);
         copyButton.setText("SAO CHÉP TOKEN RIÊNG");
         copyButton.setTextSize(12);
-        copyButton.setOnClickListener(v -> {
-            android.content.ClipboardManager clipboard = (android.content.ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
-            clipboard.setPrimaryClip(android.content.ClipData.newPlainText("Gateway token", accessToken));
-            android.widget.Toast.makeText(this, "Đã sao chép token", android.widget.Toast.LENGTH_SHORT).show();
-        });
+        copyButton.setOnClickListener(v -> copyAccessToken());
         root.addView(copyButton);
 
         Button shareLogButton = new Button(this);
@@ -784,6 +789,20 @@ public class MainActivity extends Activity {
         out.flush();
     }
 
+    private void copyAccessToken() {
+        // Snapshot the exact same immutable token shown in refreshDetails() and used by the proxy.
+        final String token = accessToken;
+        android.content.ClipboardManager clipboard =
+                (android.content.ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
+        if (clipboard == null || token == null || token.isEmpty()) {
+            android.widget.Toast.makeText(this, "Không thể sao chép token", android.widget.Toast.LENGTH_LONG).show();
+            return;
+        }
+        clipboard.setPrimaryClip(android.content.ClipData.newPlainText("Gateway token", token));
+        android.widget.Toast.makeText(this, "Đã sao chép token hiện đang hiển thị", android.widget.Toast.LENGTH_SHORT).show();
+        log("COPY_TOKEN", "Đã sao chép token hiện tại");
+    }
+
     private void copyGatewayLink(boolean modemTest) {
         if (modemTest && !applyModemIpFromInput()) return;
         Inet6Address ip = cellularIpv6;
@@ -795,7 +814,8 @@ public class MainActivity extends Activity {
         String host = ip.getHostAddress();
         int zone = host.indexOf('%');
         if (zone >= 0) host = host.substring(0, zone);
-        String url = "http://[" + host + "]:" + PORT + "/" + accessToken + (modemTest ? "/modem-test" : "/");
+        final String token = accessToken;
+        String url = "http://[" + host + "]:" + PORT + "/" + token + (modemTest ? "/modem-test" : "/");
         android.content.ClipboardManager cb = (android.content.ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
         cb.setPrimaryClip(android.content.ClipData.newPlainText("Gateway URL", url));
         log("COPY_LINK", "Đã sao chép " + (modemTest ? "modem-test" : "IPv6 test") + " URL");
