@@ -40,6 +40,10 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import javax.net.ssl.SSLSocket;
 import javax.net.ssl.SSLSocketFactory;
+import javax.net.ssl.SSLContext;
+import javax.net.ssl.TrustManager;
+import javax.net.ssl.X509TrustManager;
+import java.security.cert.X509Certificate;
 
 public class MainActivity extends Activity {
     private static final int PORT = 8080;
@@ -67,7 +71,7 @@ public class MainActivity extends Activity {
     @Override public void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         initLogging();
-        log("APP", "onCreate version=0.3.1");
+        log("APP", "onCreate version=0.4.0-reverse-proxy");
         final Thread.UncaughtExceptionHandler oldHandler = Thread.getDefaultUncaughtExceptionHandler();
         Thread.setDefaultUncaughtExceptionHandler((thread, throwable) -> {
             logException("UNCAUGHT", throwable);
@@ -158,26 +162,26 @@ public class MainActivity extends Activity {
         details.setBackgroundColor(pale);
         root.addView(details);
 
-        TextView testHeading = makeText("ĐỊA CHỈ KIỂM TRA TỪ ANDROID B", 12, ink);
+        TextView testHeading = makeText("ĐỊA CHỈ TRUY CẬP MODEM TỪ ANDROID B", 12, ink);
         testHeading.setTypeface(null, android.graphics.Typeface.BOLD);
         testHeading.setPadding(dp(2), dp(14), 0, dp(7));
         root.addView(testHeading);
         TextView instructions = makeText(
-                "IPv6 sẽ tự động được lấy từ mạng 4G sau khi khởi động Gateway. " +
-                "Dùng các nút bên dưới để sao chép nguyên đường dẫn, không cần nhập IPv6 thủ công.", 12, muted);
+                "Android B mở link Gateway để xem trực tiếp giao diện modem. " +
+                "Gateway chuyển tiếp yêu cầu từ IPv6 Cellular sang modem IPv4 qua Wi-Fi.", 12, muted);
         instructions.setTextIsSelectable(true);
         instructions.setPadding(dp(12), dp(12), dp(12), dp(12));
         instructions.setBackgroundColor(0xFFFFFFFF);
         root.addView(instructions);
 
         Button copyIpv6Button = new Button(this);
-        copyIpv6Button.setText("SAO CHÉP LINK KIỂM TRA IPV6");
+        copyIpv6Button.setText("SAO CHÉP LINK TRUY CẬP MODEM");
         copyIpv6Button.setTextSize(12);
         copyIpv6Button.setOnClickListener(v -> copyGatewayLink(false));
         root.addView(copyIpv6Button);
 
         Button copyModemButton = new Button(this);
-        copyModemButton.setText("SAO CHÉP LINK KIỂM TRA MODEM");
+        copyModemButton.setText("SAO CHÉP LINK KIỂM TRA KẾT NỐI MODEM");
         copyModemButton.setTextSize(12);
         copyModemButton.setOnClickListener(v -> copyGatewayLink(true));
         root.addView(copyModemButton);
@@ -220,8 +224,8 @@ public class MainActivity extends Activity {
         refreshLogView();
 
         TextView warning = makeText(
-                "LƯU Ý: Bản 0.3.0 chỉ kiểm tra đường truyền IPv6 và kết nối HTTPS tới modem. " +
-                "Chưa chuyển tiếp giao diện quản trị. Không gửi mật khẩu modem qua HTTP.", 11, 0xFF9A5B00);
+                "Gateway chuyển tiếp giao diện modem qua HTTP trên IPv6. Chỉ dùng trên mạng tin cậy; " +
+                "đường truyền từ B đến A chưa được mã hóa HTTPS. Không dùng trên Wi-Fi công cộng.", 11, 0xFF9A5B00);
         warning.setPadding(dp(12), dp(10), dp(12), dp(10));
         warning.setBackgroundColor(0xFFFFF4DF);
         LinearLayout.LayoutParams warningLp = new LinearLayout.LayoutParams(-1, -2);
@@ -355,36 +359,275 @@ public class MainActivity extends Activity {
     }
 
     private void handleClient(Socket client) {
-        log("HTTP", "Bắt đầu xử lý client");
-        try (Socket s = client;
-             BufferedReader in = new BufferedReader(new InputStreamReader(
-                     s.getInputStream(), StandardCharsets.US_ASCII));
-             OutputStream out = s.getOutputStream()) {
-            s.setSoTimeout(7000);
-            String request = in.readLine();
-            log("HTTP", "Request: " + request);
-            if (request == null) return;
-            String line;
-            while ((line = in.readLine()) != null && !line.isEmpty()) { }
-
-            String prefix = "/" + accessToken;
-            if (request.startsWith("GET " + prefix + "/modem-test ")) {
-                String result = testModemOverWifi();
-                sendHttp(out, result.startsWith("OK") ? "200 OK" : "502 Bad Gateway", result);
-            } else if (request.startsWith("GET " + prefix + " ")) {
-                sendHttp(out, "200 OK",
-                        "ANDROID A REACHED OVER CELLULAR IPv6\n" +
-                        "TCP/HTTP inbound: OK\n" +
-                        "Cellular IPv6: " + cellularIpv6.getHostAddress() + "\n" +
-                        "Wi-Fi network detected: " + (wifiNetwork != null) + "\n" +
-                        "Modem HTTPS test: open /" + accessToken + "/modem-test\n");
-            } else {
-                sendHttp(out, "404 Not Found", "Not found\n");
+        try (Socket s = client) {
+            s.setSoTimeout(25000);
+            java.io.BufferedInputStream in = new java.io.BufferedInputStream(s.getInputStream());
+            OutputStream clientOut = s.getOutputStream();
+            String requestLine = readHttpLine(in);
+            if (requestLine == null || requestLine.isEmpty()) return;
+            String[] requestParts = requestLine.split(" ", 3);
+            if (requestParts.length < 3) {
+                sendHttp(clientOut, "400 Bad Request", "Bad request\n");
+                return;
             }
+            String method = requestParts[0].toUpperCase(Locale.US);
+            String target = requestParts[1];
+            java.util.List<String> headers = new java.util.ArrayList<>();
+            String line;
+            while ((line = readHttpLine(in)) != null && !line.isEmpty()) headers.add(line);
+
+            String tokenPrefix = "/" + accessToken;
+            if (target.equals(tokenPrefix) || target.equals(tokenPrefix + "/")) {
+                String host = requestHeader(headers, "Host");
+                String cookie = "GW_AUTH=" + accessToken + "; Path=/; HttpOnly; SameSite=Lax";
+                String location = "/";
+                String response = "HTTP/1.1 302 Found\r\nLocation: " + location +
+                        "\r\nSet-Cookie: " + cookie +
+                        "\r\nCache-Control: no-store\r\nContent-Length: 0\r\nConnection: close\r\n\r\n";
+                clientOut.write(response.getBytes(StandardCharsets.US_ASCII));
+                clientOut.flush();
+                log("AUTH", "Đã cấp cookie truy cập Gateway cho client " + s.getInetAddress());
+                return;
+            }
+
+            if (target.equals(tokenPrefix + "/modem-test")) {
+                String result = testModemOverWifi();
+                sendHttp(clientOut, result.startsWith("OK") ? "200 OK" : "502 Bad Gateway", result);
+                return;
+            }
+            if (!hasValidGatewayCookie(headers)) {
+                sendHttp(clientOut, "403 Forbidden", "Gateway token missing or invalid. Open the private Gateway link first.\n");
+                log("AUTH", "Từ chối request không có token hợp lệ: " + safePath(target));
+                return;
+            }
+            if (target.startsWith("http://") || target.startsWith("https://")) {
+                java.net.URI absolute = java.net.URI.create(target);
+                target = absolute.getRawPath();
+                if (target == null || target.isEmpty()) target = "/";
+                if (absolute.getRawQuery() != null) target += "?" + absolute.getRawQuery();
+            }
+            if (!target.startsWith("/")) target = "/" + target;
+            if (target.startsWith("//")) {
+                sendHttp(clientOut, "400 Bad Request", "Invalid path\n");
+                return;
+            }
+
+            Network wifi = wifiNetwork;
+            if (wifi == null) {
+                sendHttp(clientOut, "503 Service Unavailable", "Wi-Fi modem is not connected.\n");
+                return;
+            }
+            log("PROXY", method + " " + safePath(target) + " -> https://" + MODEM_HOST);
+
+            Socket raw = wifi.getSocketFactory().createSocket();
+            raw.connect(new InetSocketAddress(MODEM_HOST, MODEM_HTTPS_PORT), 8000);
+            SSLSocket upstream = (SSLSocket) createModemOnlySslSocketFactory()
+                    .createSocket(raw, MODEM_HOST, MODEM_HTTPS_PORT, true);
+            upstream.setSoTimeout(25000);
+            upstream.startHandshake();
+
+            OutputStream upstreamOut = upstream.getOutputStream();
+            java.io.BufferedOutputStream bufferedUpOut = new java.io.BufferedOutputStream(upstreamOut);
+            String hostHeader = "Host: " + MODEM_HOST;
+            bufferedUpOut.write((method + " " + target + " HTTP/1.1\r\n").getBytes(StandardCharsets.US_ASCII));
+            boolean hasHost = false;
+            boolean hasConnection = false;
+            boolean hasEncoding = false;
+            boolean chunkedRequest = false;
+            long contentLength = -1;
+            for (String h : headers) {
+                int colon = h.indexOf(':');
+                if (colon <= 0) continue;
+                String name = h.substring(0, colon).trim();
+                String lower = name.toLowerCase(Locale.US);
+                String value = h.substring(colon + 1).trim();
+                if (lower.equals("host")) { hasHost = true; continue; }
+                if (lower.equals("connection") || lower.equals("proxy-connection") || lower.equals("keep-alive")) continue;
+                if (lower.equals("accept-encoding")) { hasEncoding = true; continue; }
+                if (lower.equals("expect")) continue;
+                if (lower.equals("origin")) value = "https://" + MODEM_HOST;
+                if (lower.equals("referer")) {
+                    try {
+                        java.net.URI ref = java.net.URI.create(value);
+                        String rp = ref.getRawPath() == null ? "/" : ref.getRawPath();
+                        if (ref.getRawQuery() != null) rp += "?" + ref.getRawQuery();
+                        value = "https://" + MODEM_HOST + rp;
+                    } catch (Exception ignored) { value = "https://" + MODEM_HOST + "/"; }
+                }
+                if (lower.equals("cookie")) {
+                    StringBuilder filtered = new StringBuilder();
+                    for (String c : value.split(";")) {
+                        String part = c.trim();
+                        if (part.regionMatches(true, 0, "GW_AUTH=", 0, 8)) continue;
+                        if (filtered.length() > 0) filtered.append("; ");
+                        filtered.append(part);
+                    }
+                    if (filtered.length() == 0) continue;
+                    value = filtered.toString();
+                }
+                if (lower.equals("transfer-encoding") && value.toLowerCase(Locale.US).contains("chunked")) chunkedRequest = true;
+                if (lower.equals("content-length")) {
+                    try { contentLength = Long.parseLong(value); } catch (Exception ignored) { }
+                }
+                bufferedUpOut.write((name + ": " + value + "\r\n").getBytes(StandardCharsets.ISO_8859_1));
+            }
+            bufferedUpOut.write((hostHeader + "\r\nConnection: close\r\nAccept-Encoding: identity\r\n\r\n").getBytes(StandardCharsets.US_ASCII));
+            bufferedUpOut.flush();
+            if (chunkedRequest) copyChunkedBody(in, bufferedUpOut);
+            else if (contentLength > 0) copyExactly(in, bufferedUpOut, contentLength);
+            bufferedUpOut.flush();
+
+            java.io.BufferedInputStream upstreamIn = new java.io.BufferedInputStream(upstream.getInputStream());
+            String statusLine = readHttpLine(upstreamIn);
+            if (statusLine == null) throw new java.io.IOException("Modem returned empty response");
+            java.util.List<String> responseHeaders = new java.util.ArrayList<>();
+            boolean chunkedResponse = false;
+            long responseLength = -1;
+            String statusCode = statusLine.length() >= 12 ? statusLine.substring(9, 12) : "200";
+            while ((line = readHttpLine(upstreamIn)) != null && !line.isEmpty()) {
+                int colon = line.indexOf(':');
+                if (colon > 0) {
+                    String name = line.substring(0, colon).trim().toLowerCase(Locale.US);
+                    String value = line.substring(colon + 1).trim();
+                    if (name.equals("transfer-encoding") && value.toLowerCase(Locale.US).contains("chunked")) chunkedResponse = true;
+                    if (name.equals("content-length")) {
+                        try { responseLength = Long.parseLong(value); } catch (Exception ignored) { }
+                    }
+                    if (name.equals("connection") || name.equals("keep-alive") || name.equals("proxy-connection")) continue;
+                    if (name.equals("location")) value = rewriteLocation(value);
+                    if (name.equals("set-cookie")) value = rewriteCookie(value);
+                    responseHeaders.add(line.substring(0, colon + 1) + " " + value);
+                } else responseHeaders.add(line);
+            }
+            StringBuilder responseHead = new StringBuilder(statusLine).append("\r\n");
+            for (String h : responseHeaders) responseHead.append(h).append("\r\n");
+            responseHead.append("Connection: close\r\n\r\n");
+            clientOut.write(responseHead.toString().getBytes(StandardCharsets.ISO_8859_1));
+            clientOut.flush();
+
+            boolean noBody = method.equals("HEAD") || statusCode.equals("204") || statusCode.equals("304") || statusCode.startsWith("1");
+            if (!noBody) {
+                if (chunkedResponse) copyChunkedBody(upstreamIn, clientOut);
+                else if (responseLength >= 0) copyExactly(upstreamIn, clientOut, responseLength);
+                else copyUntilEof(upstreamIn, clientOut);
+            }
+            clientOut.flush();
+            log("PROXY", "Hoàn tất " + method + " " + safePath(target) + " -> HTTP " + statusCode);
+            upstream.close();
         } catch (Exception e) {
-            logException("HANDLE_CLIENT", e);
-            postStatus("Lỗi xử lý yêu cầu: " + e.getMessage());
+            logException("REVERSE_PROXY", e);
+            try {
+                if (!client.isClosed()) sendHttp(client.getOutputStream(), "502 Bad Gateway",
+                        "Gateway cannot reach modem: " + e.getClass().getSimpleName() + "\n");
+            } catch (Exception ignored) { }
         }
+    }
+
+    private String readHttpLine(java.io.InputStream in) throws Exception {
+        java.io.ByteArrayOutputStream b = new java.io.ByteArrayOutputStream();
+        int prev = -1, c;
+        while ((c = in.read()) != -1) {
+            if (prev == '\r' && c == '\n') {
+                byte[] bytes = b.toByteArray();
+                return new String(bytes, 0, Math.max(0, bytes.length - 1), StandardCharsets.ISO_8859_1);
+            }
+            b.write(c);
+            prev = c;
+            if (b.size() > 16384) throw new java.io.IOException("HTTP line too long");
+        }
+        return b.size() == 0 ? null : b.toString("ISO-8859-1");
+    }
+
+    private String requestHeader(java.util.List<String> headers, String wanted) {
+        for (String h : headers) {
+            int p = h.indexOf(':');
+            if (p > 0 && h.substring(0, p).trim().equalsIgnoreCase(wanted)) return h.substring(p + 1).trim();
+        }
+        return "";
+    }
+
+    private boolean hasValidGatewayCookie(java.util.List<String> headers) {
+        String cookies = requestHeader(headers, "Cookie");
+        for (String part : cookies.split(";")) {
+            String[] pair = part.trim().split("=", 2);
+            if (pair.length == 2 && pair[0].equals("GW_AUTH") && pair[1].equals(accessToken)) return true;
+        }
+        return false;
+    }
+
+    private String rewriteLocation(String value) {
+        try {
+            java.net.URI u = java.net.URI.create(value);
+            if (u.isAbsolute() && u.getHost() != null &&
+                    (u.getHost().equals(MODEM_HOST) || u.getHost().equals("192.168.1.1"))) {
+                String path = u.getRawPath();
+                if (path == null || path.isEmpty()) path = "/";
+                return path + (u.getRawQuery() == null ? "" : "?" + u.getRawQuery()) +
+                        (u.getRawFragment() == null ? "" : "#" + u.getRawFragment());
+            }
+        } catch (Exception ignored) { }
+        return value;
+    }
+
+    private String rewriteCookie(String value) {
+        String[] parts = value.split(";");
+        StringBuilder out = new StringBuilder(parts[0].trim());
+        for (int i = 1; i < parts.length; i++) {
+            String attr = parts[i].trim();
+            String lower = attr.toLowerCase(Locale.US);
+            if (lower.startsWith("domain=")) continue;
+            if (lower.equals("secure")) continue; // B connects to this Gateway over HTTP; modem-side TLS remains enabled.
+            out.append("; ").append(attr);
+        }
+        return out.toString();
+    }
+
+    private String safePath(String path) {
+        if (path == null) return "/";
+        int q = path.indexOf('?');
+        return q >= 0 ? path.substring(0, q) : path;
+    }
+
+    private void copyExactly(java.io.InputStream in, OutputStream out, long count) throws Exception {
+        byte[] buf = new byte[8192];
+        long left = count;
+        while (left > 0) {
+            int n = in.read(buf, 0, (int)Math.min(buf.length, left));
+            if (n < 0) throw new java.io.EOFException("Unexpected end of HTTP body");
+            out.write(buf, 0, n);
+            left -= n;
+        }
+    }
+
+    private void copyUntilEof(java.io.InputStream in, OutputStream out) throws Exception {
+        byte[] buf = new byte[8192]; int n;
+        while ((n = in.read(buf)) != -1) out.write(buf, 0, n);
+    }
+
+    private void copyChunkedBody(java.io.InputStream in, OutputStream out) throws Exception {
+        while (true) {
+            String sizeLine = readHttpLine(in);
+            if (sizeLine == null) throw new java.io.EOFException("Missing chunk size");
+            out.write((sizeLine + "\r\n").getBytes(StandardCharsets.US_ASCII));
+            String sizeText = sizeLine.split(";", 2)[0].trim();
+            long size = Long.parseLong(sizeText, 16);
+            if (size > 0) {
+                copyExactly(in, out, size);
+                readRequiredCrlf(in, out);
+            } else {
+                String trailer;
+                while ((trailer = readHttpLine(in)) != null && !trailer.isEmpty())
+                    out.write((trailer + "\r\n").getBytes(StandardCharsets.ISO_8859_1));
+                out.write("\r\n".getBytes(StandardCharsets.US_ASCII));
+                break;
+            }
+        }
+    }
+
+    private void readRequiredCrlf(java.io.InputStream in, OutputStream out) throws Exception {
+        int a = in.read(), b = in.read();
+        if (a != '\r' || b != '\n') throw new java.io.IOException("Invalid chunk framing");
+        out.write('\r'); out.write('\n');
     }
 
     private String testModemOverWifi() {
@@ -398,11 +641,15 @@ public class MainActivity extends Activity {
             // independently of the phone's default network.
             raw = wifi.getSocketFactory().createSocket();
             raw.connect(new InetSocketAddress(MODEM_HOST, MODEM_HTTPS_PORT), 5000);
-            tls = (SSLSocket) ((SSLSocketFactory) SSLSocketFactory.getDefault())
+            // Chỉ dùng SSL bỏ qua chứng chỉ cho kết nối modem nội bộ này.
+            // Socket TCP ban đầu vẫn được tạo từ wifi.getSocketFactory(), vì vậy
+            // lưu lượng đi qua Wi-Fi; không thay đổi cấu hình mạng toàn ứng dụng.
+            tls = (SSLSocket) createModemOnlySslSocketFactory()
                     .createSocket(raw, MODEM_HOST, MODEM_HTTPS_PORT, true);
             tls.setSoTimeout(5000);
-            log("MODEM", "TCP tới modem thành công; bắt đầu TLS handshake");
-            tls.startHandshake(); // Standard certificate validation; no trust-all bypass.
+            log("MODEM", "TCP tới modem thành công; bắt đầu TLS handshake (bỏ qua chứng chỉ riêng modem)");
+            tls.startHandshake();
+            log("MODEM", "TLS handshake thành công với modem (certificate verification skipped for modem only)");
             OutputStream out = tls.getOutputStream();
             out.write(("GET / HTTP/1.1\r\nHost: " + MODEM_HOST +
                     "\r\nConnection: close\r\n\r\n").getBytes(StandardCharsets.US_ASCII));
@@ -413,8 +660,8 @@ public class MainActivity extends Activity {
             return "OK: Wi-Fi đã kết nối được HTTPS modem.\n" +
                     "Modem response: " + first + "\n";
         } catch (javax.net.ssl.SSLHandshakeException e) {
-            return "ERROR: Đã tới được cổng HTTPS modem nhưng chứng chỉ TLS không được Android tin cậy " +
-                    "(có thể modem dùng chứng chỉ tự ký). Chưa bỏ qua kiểm tra chứng chỉ.\n";
+            logException("MODEM_TLS", e);
+            return "ERROR: Không hoàn tất được TLS với modem: " + e.getMessage() + "\n";
         } catch (Exception e) {
             logException("MODEM_TEST", e);
             return "ERROR: Không kết nối được modem qua Wi-Fi: " +
@@ -422,6 +669,24 @@ public class MainActivity extends Activity {
         } finally {
             try { if (tls != null) tls.close(); else if (raw != null) raw.close(); } catch (Exception ignored) {}
         }
+    }
+
+    /**
+     * Trust manager riêng cho HTTPS modem nội bộ.
+     * Không dùng factory này cho API Internet hoặc host khác.
+     */
+    private SSLSocketFactory createModemOnlySslSocketFactory() throws Exception {
+        if (!"192.168.1.1".equals(MODEM_HOST) || MODEM_HTTPS_PORT != 443) {
+            throw new IllegalStateException("SSL bỏ qua chứng chỉ chỉ được phép cho modem 192.168.1.1:443");
+        }
+        X509TrustManager modemOnlyTrustManager = new X509TrustManager() {
+            @Override public void checkClientTrusted(X509Certificate[] chain, String authType) { }
+            @Override public void checkServerTrusted(X509Certificate[] chain, String authType) { }
+            @Override public X509Certificate[] getAcceptedIssuers() { return new X509Certificate[0]; }
+        };
+        SSLContext context = SSLContext.getInstance("TLS");
+        context.init(null, new TrustManager[]{modemOnlyTrustManager}, new SecureRandom());
+        return context.getSocketFactory();
     }
 
     private void sendHttp(OutputStream out, String code, String body) throws Exception {
@@ -443,7 +708,7 @@ public class MainActivity extends Activity {
         String host = ip.getHostAddress();
         int zone = host.indexOf('%');
         if (zone >= 0) host = host.substring(0, zone);
-        String url = "http://[" + host + "]:" + PORT + "/" + accessToken + (modemTest ? "/modem-test" : "");
+        String url = "http://[" + host + "]:" + PORT + "/" + accessToken + (modemTest ? "/modem-test" : "/");
         android.content.ClipboardManager cb = (android.content.ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
         cb.setPrimaryClip(android.content.ClipData.newPlainText("Gateway URL", url));
         log("COPY_LINK", "Đã sao chép " + (modemTest ? "modem-test" : "IPv6 test") + " URL");
