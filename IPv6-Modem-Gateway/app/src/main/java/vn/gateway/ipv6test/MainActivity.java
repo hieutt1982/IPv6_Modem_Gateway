@@ -36,6 +36,7 @@ import java.security.SecureRandom;
 import java.util.Locale;
 import java.text.SimpleDateFormat;
 import java.util.Date;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ThreadPoolExecutor;
@@ -70,6 +71,7 @@ public class MainActivity extends Activity {
     private TextView logView;
     private File logFile;
     private final Object logLock = new Object();
+    private final AtomicLong requestSequence = new AtomicLong(0);
     private Button startButton;
     private Button stopButton;
     private String accessToken;
@@ -78,7 +80,7 @@ public class MainActivity extends Activity {
     @Override public void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         initLogging();
-        log("APP", "onCreate version=0.5.4-ipv6-to-ipv4-gateway");
+        log("APP", "onCreate version=0.5.6-TRACE-LOG-CLEAR");
         final Thread.UncaughtExceptionHandler oldHandler = Thread.getDefaultUncaughtExceptionHandler();
         Thread.setDefaultUncaughtExceptionHandler((thread, throwable) -> {
             logException("UNCAUGHT", throwable);
@@ -144,7 +146,7 @@ public class MainActivity extends Activity {
         TextView title = makeText("IPv6 MODEM GATEWAY", 20, 0xFFFFFFFF);
         title.setTypeface(null, android.graphics.Typeface.BOLD);
         header.addView(title);
-        TextView subtitle = makeText("REVERSE PROXY • PHIÊN BẢN 0.5.0", 11, 0xFFD5E3F2);
+        TextView subtitle = makeText("REVERSE PROXY • PHIÊN BẢN 0.5.6 TRACE LOG + CLEAR", 11, 0xFFD5E3F2);
         subtitle.setPadding(0, dp(5), 0, 0);
         header.addView(subtitle);
         root.addView(header);
@@ -262,14 +264,18 @@ public class MainActivity extends Activity {
         root.addView(shareLogButton);
 
         Button copyLogButton = new Button(this);
-        copyLogButton.setText("SAO CHÉP LOG");
+        copyLogButton.setText("SAO CHÉP LOG 100 DÒNG GẦN NHẤT");
         copyLogButton.setTextSize(12);
-        copyLogButton.setOnClickListener(v -> {
-            android.content.ClipboardManager cb = (android.content.ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
-            cb.setPrimaryClip(android.content.ClipData.newPlainText("Gateway log", readLog()));
-            android.widget.Toast.makeText(this, "Đã sao chép log", android.widget.Toast.LENGTH_SHORT).show();
-        });
+        copyLogButton.setOnClickListener(v -> copyRecentLog());
         root.addView(copyLogButton);
+
+        Button clearLogButton = new Button(this);
+        clearLogButton.setText("XÓA TOÀN BỘ LOG");
+        clearLogButton.setTextSize(12);
+        clearLogButton.setTextColor(0xFFFFFFFF);
+        clearLogButton.setBackgroundTintList(android.content.res.ColorStateList.valueOf(0xFFB42318));
+        clearLogButton.setOnClickListener(v -> confirmClearLogs());
+        root.addView(clearLogButton);
 
         TextView logHeading = makeText("NHẬT KÝ HOẠT ĐỘNG", 12, ink);
         logHeading.setTypeface(null, android.graphics.Typeface.BOLD);
@@ -474,13 +480,49 @@ public class MainActivity extends Activity {
         });
     }
 
+    // Mỗi HTTP request có mã riêng và thời gian từng công đoạn (không thay đổi luồng proxy).
+    private final class RequestTrace {
+        final long id = requestSequence.incrementAndGet();
+        final long started = System.nanoTime();
+        void mark(String phase, String message) {
+            long elapsedMs = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - started);
+            log("TRACE", "[REQ-" + id + "] [" + phase + "] [t+" + elapsedMs + "ms] " + message);
+        }
+        void failed(String phase, Exception e) {
+            mark(phase, "THẤT BẠI: " + e.getClass().getSimpleName() + ": " + e.getMessage());
+        }
+    }
+
+    private void copyRecentLog() {
+        try {
+            String all = readLog();
+            String[] lines = all.split("\n");
+            StringBuilder out = new StringBuilder();
+            int start = Math.max(0, lines.length - 100);
+            out.append("===== GATEWAY TRACE: 100 DÒNG GẦN NHẤT =====\n");
+            for (int i = start; i < lines.length; i++) out.append(lines[i]).append('\n');
+            android.content.ClipboardManager cb = (android.content.ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
+            cb.setPrimaryClip(android.content.ClipData.newPlainText("Gateway trace gần nhất", out.toString()));
+            android.widget.Toast.makeText(this, "Đã sao chép 100 dòng gần nhất. Gửi nguyên đoạn này cho ChatGPT.", android.widget.Toast.LENGTH_LONG).show();
+        } catch (Exception e) {
+            android.widget.Toast.makeText(this, "Không sao chép được log: " + e.getMessage(), android.widget.Toast.LENGTH_LONG).show();
+        }
+    }
+
     private void handleClient(Socket client) {
+        RequestTrace trace = new RequestTrace();
+        trace.mark("01-INBOUND", "Nhận kết nối từ " + client.getInetAddress());
         try (Socket s = client) {
             s.setSoTimeout(25000);
+            trace.mark("02-READ-REQUEST", "Bắt đầu đọc dòng HTTP đầu tiên");
             java.io.BufferedInputStream in = new java.io.BufferedInputStream(s.getInputStream());
             OutputStream clientOut = s.getOutputStream();
             String requestLine = readHttpLine(in);
-            if (requestLine == null || requestLine.isEmpty()) return;
+            if (requestLine == null || requestLine.isEmpty()) {
+                trace.mark("02-READ-REQUEST", "Không nhận được request line; đóng kết nối");
+                return;
+            }
+            trace.mark("02-READ-REQUEST", "Đã nhận: " + requestLine);
             String[] requestParts = requestLine.split(" ", 3);
             if (requestParts.length < 3) {
                 sendHttp(clientOut, "400 Bad Request", "Bad request\n");
@@ -491,6 +533,7 @@ public class MainActivity extends Activity {
             java.util.List<String> headers = new java.util.ArrayList<>();
             String line;
             while ((line = readHttpLine(in)) != null && !line.isEmpty()) headers.add(line);
+            trace.mark("03-READ-HEADERS", "Đã đọc " + headers.size() + " header");
 
             String tokenPrefix = "/" + accessToken;
             if (target.equals(tokenPrefix) || target.equals(tokenPrefix + "/")) {
@@ -503,6 +546,7 @@ public class MainActivity extends Activity {
                 clientOut.write(response.getBytes(StandardCharsets.US_ASCII));
                 clientOut.flush();
                 log("AUTH", "Đã cấp cookie truy cập Gateway cho client " + s.getInetAddress());
+                trace.mark("04-GATEWAY-AUTH", "Cấp cookie; chuyển hướng về /");
                 return;
             }
 
@@ -512,10 +556,12 @@ public class MainActivity extends Activity {
                 return;
             }
             if (!hasValidGatewayCookie(headers)) {
+                trace.mark("04-GATEWAY-AUTH", "Từ chối: thiếu hoặc sai cookie GW_AUTH");
                 sendHttp(clientOut, "403 Forbidden", "Gateway token missing or invalid. Open the private Gateway link first.\n");
                 log("AUTH", "Từ chối request không có token hợp lệ: " + safePath(target));
                 return;
             }
+            trace.mark("04-GATEWAY-AUTH", "Cookie Gateway hợp lệ");
             if (target.startsWith("http://") || target.startsWith("https://")) {
                 java.net.URI absolute = java.net.URI.create(target);
                 target = absolute.getRawPath();
@@ -534,13 +580,16 @@ public class MainActivity extends Activity {
                 return;
             }
             log("PROXY", method + " " + safePath(target) + " -> https://" + modemHost);
-
+            trace.mark("05-MODEM-TCP", "Bắt đầu kết nối TCP tới " + modemHost + ":" + MODEM_HTTPS_PORT);
             Socket raw = wifi.getSocketFactory().createSocket();
             raw.connect(new InetSocketAddress(modemHost, MODEM_HTTPS_PORT), 8000);
+            trace.mark("05-MODEM-TCP", "TCP kết nối thành công tới modem");
+            trace.mark("06-MODEM-TLS", "Bắt đầu TLS handshake (HTTPS)");
             SSLSocket upstream = (SSLSocket) createModemOnlySslSocketFactory()
                     .createSocket(raw, modemHost, MODEM_HTTPS_PORT, true);
             upstream.setSoTimeout(25000);
             upstream.startHandshake();
+            trace.mark("06-MODEM-TLS", "TLS handshake hoàn tất");
 
             OutputStream upstreamOut = upstream.getOutputStream();
             java.io.BufferedOutputStream bufferedUpOut = new java.io.BufferedOutputStream(upstreamOut);
@@ -596,13 +645,17 @@ public class MainActivity extends Activity {
             }
             bufferedUpOut.write((hostHeader + "\r\nConnection: close\r\nAccept-Encoding: identity\r\n\r\n").getBytes(StandardCharsets.US_ASCII));
             bufferedUpOut.flush();
+            trace.mark("07-MODEM-REQUEST", "Đã gửi HTTP request tới modem: " + method + " " + safePath(target));
             if (chunkedRequest) copyChunkedBody(in, bufferedUpOut);
             else if (contentLength > 0) copyExactly(in, bufferedUpOut, contentLength);
             bufferedUpOut.flush();
+            trace.mark("07-MODEM-REQUEST", "Hoàn tất gửi request/body; method=" + method + ", bodyLength=" + contentLength + ", chunked=" + chunkedRequest);
 
             java.io.BufferedInputStream upstreamIn = new java.io.BufferedInputStream(upstream.getInputStream());
+            trace.mark("08-MODEM-FIRST-BYTE", "Đang chờ byte phản hồi đầu tiên từ modem");
             String statusLine = readHttpLine(upstreamIn);
             if (statusLine == null) throw new java.io.IOException("Modem returned empty response");
+            trace.mark("08-MODEM-FIRST-BYTE", "Modem bắt đầu trả response: " + statusLine);
             java.util.List<String> responseHeaders = new java.util.ArrayList<>();
             boolean chunkedResponse = false;
             long responseLength = -1;
@@ -628,13 +681,18 @@ public class MainActivity extends Activity {
                 } else responseHeaders.add(line);
             }
 
+            trace.mark("09-MODEM-HEADERS", "Đã đọc header phản hồi; HTTP " + statusCode + ", Content-Type=" + responseType + ", Content-Length=" + responseLength);
             boolean noBody = method.equals("HEAD") || statusCode.equals("204") || statusCode.equals("304") || statusCode.startsWith("1");
             byte[] bufferedBody = null;
             boolean textual = responseType.startsWith("text/") || responseType.contains("javascript") ||
                     responseType.contains("json") || responseType.contains("xml") || responseType.contains("svg");
             if (!noBody && textual && responseLength >= 0 && responseLength <= 8 * 1024 * 1024) {
+                trace.mark("10-MODEM-BODY", "Bắt đầu đọc nội dung text từ modem; bytes=" + responseLength);
                 bufferedBody = readBodyBytes(upstreamIn, responseLength);
                 bufferedBody = rewriteModemAbsoluteUrls(bufferedBody, browserHost);
+                trace.mark("10-MODEM-BODY", "Đọc và xử lý xong nội dung text; bytes=" + bufferedBody.length);
+            } else {
+                trace.mark("10-MODEM-BODY", "Chuyển tiếp body trực tiếp; noBody=" + noBody + ", chunked=" + chunkedResponse + ", length=" + responseLength);
             }
 
             StringBuilder responseHead = new StringBuilder(statusLine).append("\r\n");
@@ -652,9 +710,11 @@ public class MainActivity extends Activity {
                 else copyUntilEof(upstreamIn, clientOut);
             }
             clientOut.flush();
+            trace.mark("11-RETURN-TO-BROWSER", "Đã gửi xong response về Android B; HTTP " + statusCode);
             log("PROXY", "Hoàn tất " + method + " " + safePath(target) + " -> HTTP " + statusCode);
             upstream.close();
         } catch (Exception e) {
+            trace.failed("ERROR", e);
             logException("REVERSE_PROXY", e);
             try {
                 if (!client.isClosed()) sendHttp(client.getOutputStream(), "502 Bad Gateway",
@@ -991,6 +1051,38 @@ public class MainActivity extends Activity {
         StringWriter sw = new StringWriter();
         throwable.printStackTrace(new PrintWriter(sw));
         log(tag, sw.toString());
+    }
+
+    private void confirmClearLogs() {
+        new android.app.AlertDialog.Builder(this)
+                .setTitle("Xóa nhật ký hoạt động?")
+                .setMessage("Toàn bộ log đang lưu sẽ bị xóa. Nên dùng trước khi kiểm tra một modem mới để log chỉ chứa lần kiểm tra tiếp theo.")
+                .setNegativeButton("HỦY", (dialog, which) -> dialog.dismiss())
+                .setPositiveButton("XÓA LOG", (dialog, which) -> clearLogs())
+                .show();
+    }
+
+    private void clearLogs() {
+        synchronized (logLock) {
+            try {
+                if (logFile != null) {
+                    FileOutputStream fos = new FileOutputStream(logFile, false);
+                    fos.write(new byte[0]);
+                    fos.flush();
+                    fos.close();
+                }
+            } catch (Exception e) {
+                Log.e("IPv6Gateway", "Cannot clear log", e);
+                android.widget.Toast.makeText(this,
+                        "Không xóa được log: " + e.getMessage(),
+                        android.widget.Toast.LENGTH_LONG).show();
+                return;
+            }
+        }
+        if (logView != null) logView.setText("Log đã được xóa. Bắt đầu ghi nhận phiên kiểm tra mới.");
+        log("LOG", "========== BẮT ĐẦU PHIÊN LOG MỚI ==========");
+        android.widget.Toast.makeText(this, "Đã xóa log cũ. Log mới sẽ được ghi từ bây giờ.",
+                android.widget.Toast.LENGTH_SHORT).show();
     }
 
     private String readLog() {

@@ -67,3 +67,6 @@ The proxy still performs limited HTTP proxy compatibility handling (upstream Hos
 - Tăng versionCode lên 9, versionName 0.5.4.
 
 Lưu ý: Đây là xử lý tương thích proxy tổng quát, chưa thể bảo đảm mọi firmware modem (đặc biệt WebSocket, CSP nghiêm ngặt, URL được mã hóa/ghép động hoặc host phụ) đều hoạt động. Cần kiểm thử trực tiếp đăng nhập và lưu cấu hình trên đúng modem. Android B → A vẫn dùng HTTP nên không an toàn khi đi qua mạng không tin cậy.
+
+
+Version 0.5.6 adds a confirmed Clear All Logs action. It clears the persistent log file without stopping Gateway.
