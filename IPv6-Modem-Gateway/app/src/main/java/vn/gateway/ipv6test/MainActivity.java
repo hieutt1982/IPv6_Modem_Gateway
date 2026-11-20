@@ -47,8 +47,11 @@ import java.security.cert.X509Certificate;
 
 public class MainActivity extends Activity {
     private static final int PORT = 8080;
-    private static final String MODEM_HOST = "192.168.1.1";
     private static final int MODEM_HTTPS_PORT = 443;
+    private static final String PREFS_NAME = "gateway_settings";
+    private static final String PREF_MODEM_IP = "modem_ip";
+    private volatile String modemHost = "192.168.1.1";
+    private android.widget.EditText modemIpInput;
 
     private ConnectivityManager cm;
     private ConnectivityManager.NetworkCallback cellularCallback;
@@ -71,13 +74,15 @@ public class MainActivity extends Activity {
     @Override public void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         initLogging();
-        log("APP", "onCreate version=0.4.0-reverse-proxy");
+        log("APP", "onCreate version=0.5.1-configurable-modem-ip");
         final Thread.UncaughtExceptionHandler oldHandler = Thread.getDefaultUncaughtExceptionHandler();
         Thread.setDefaultUncaughtExceptionHandler((thread, throwable) -> {
             logException("UNCAUGHT", throwable);
             if (oldHandler != null) oldHandler.uncaughtException(thread, throwable);
         });
         cm = (ConnectivityManager) getSystemService(Context.CONNECTIVITY_SERVICE);
+        modemHost = getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
+                .getString(PREF_MODEM_IP, "192.168.1.1");
         executor = Executors.newCachedThreadPool();
         accessToken = makeToken();
         buildUi();
@@ -96,28 +101,28 @@ public class MainActivity extends Activity {
     }
 
     private void buildUi() {
-        final int ink = 0xFF172B4D;
+        final int ink = 0xFF183153;
         final int muted = 0xFF667085;
-        final int blue = 0xFF1769AA;
-        final int pale = 0xFFF3F6FA;
+        final int blue = 0xFF245B8F;
+        final int pale = 0xFFEEF2F6;
         final int green = 0xFF16804A;
 
         ScrollView scroll = new ScrollView(this);
         scroll.setFillViewport(true);
-        scroll.setBackgroundColor(0xFFF7F9FC);
+        scroll.setBackgroundColor(0xFFF1F4F7);
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
-        root.setPadding(dp(16), dp(14), dp(16), dp(22));
+        root.setPadding(dp(12), dp(10), dp(12), dp(16));
         scroll.addView(root);
 
         LinearLayout header = new LinearLayout(this);
         header.setOrientation(LinearLayout.VERTICAL);
-        header.setPadding(dp(16), dp(16), dp(16), dp(16));
+        header.setPadding(dp(15), dp(13), dp(15), dp(13));
         header.setBackgroundColor(ink);
         TextView title = makeText("IPv6 MODEM GATEWAY", 20, 0xFFFFFFFF);
         title.setTypeface(null, android.graphics.Typeface.BOLD);
         header.addView(title);
-        TextView subtitle = makeText("CỔNG KẾT NỐI • PHIÊN BẢN 0.3.0", 11, 0xFFD5E3F2);
+        TextView subtitle = makeText("REVERSE PROXY • PHIÊN BẢN 0.5.0", 11, 0xFFD5E3F2);
         subtitle.setPadding(0, dp(5), 0, 0);
         header.addView(subtitle);
         root.addView(header);
@@ -128,7 +133,7 @@ public class MainActivity extends Activity {
         root.addView(statusLabel);
         status = makeText("Chưa khởi động gateway", 15, ink);
         status.setTypeface(null, android.graphics.Typeface.BOLD);
-        status.setPadding(dp(12), dp(12), dp(12), dp(12));
+        status.setPadding(dp(11), dp(10), dp(11), dp(10));
         status.setBackgroundColor(0xFFE8EEF5);
         root.addView(status);
 
@@ -151,6 +156,42 @@ public class MainActivity extends Activity {
         stopLp.leftMargin = dp(8);
         actions.addView(stopButton, stopLp);
         root.addView(actions);
+
+        TextView modemHeading = makeText("ĐỊA CHỈ MODEM ĐÍCH", 12, ink);
+        modemHeading.setTypeface(null, android.graphics.Typeface.BOLD);
+        modemHeading.setPadding(dp(2), dp(14), 0, dp(7));
+        root.addView(modemHeading);
+        LinearLayout modemCard = new LinearLayout(this);
+        modemCard.setOrientation(LinearLayout.VERTICAL);
+        modemCard.setPadding(dp(12), dp(10), dp(12), dp(10));
+        modemCard.setBackgroundColor(0xFFFFFFFF);
+        TextView modemHint = makeText("Nhập IPv4 nội bộ của modem đang kết nối Wi-Fi. Cổng HTTPS mặc định: 443.", 12, muted);
+        modemCard.addView(modemHint);
+        modemIpInput = new android.widget.EditText(this);
+        modemIpInput.setSingleLine(true);
+        modemIpInput.setInputType(android.text.InputType.TYPE_CLASS_TEXT | android.text.InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS);
+        modemIpInput.setHint("Ví dụ: 192.168.1.1");
+        modemIpInput.setText(modemHost);
+        modemIpInput.setSelectAllOnFocus(true);
+        modemIpInput.setPadding(dp(10), dp(8), dp(10), dp(8));
+        LinearLayout.LayoutParams ipLp = new LinearLayout.LayoutParams(-1, dp(50));
+        ipLp.topMargin = dp(8);
+        modemCard.addView(modemIpInput, ipLp);
+        TextView modemPort = makeText("Giao thức: HTTPS     Cổng: 443", 12, blue);
+        modemPort.setPadding(0, dp(7), 0, 0);
+        modemCard.addView(modemPort);
+        Button saveModemIpButton = new Button(this);
+        saveModemIpButton.setText("LƯU ĐỊA CHỈ MODEM");
+        saveModemIpButton.setTextSize(12);
+        saveModemIpButton.setOnClickListener(v -> {
+            if (applyModemIpFromInput()) {
+                android.widget.Toast.makeText(this, "Đã lưu IP modem: " + modemHost, android.widget.Toast.LENGTH_SHORT).show();
+            }
+        });
+        LinearLayout.LayoutParams saveIpLp = new LinearLayout.LayoutParams(-1, dp(44));
+        saveIpLp.topMargin = dp(6);
+        modemCard.addView(saveModemIpButton, saveIpLp);
+        root.addView(modemCard);
 
         TextView networkHeading = makeText("THÔNG TIN KẾT NỐI", 12, ink);
         networkHeading.setTypeface(null, android.graphics.Typeface.BOLD);
@@ -220,12 +261,12 @@ public class MainActivity extends Activity {
         logView.setTextIsSelectable(true);
         logView.setPadding(dp(10), dp(10), dp(10), dp(10));
         logView.setBackgroundColor(0xFFFFFFFF);
-        root.addView(logView);
+        root.addView(logView, new LinearLayout.LayoutParams(-1, dp(190)));
         refreshLogView();
 
         TextView warning = makeText(
-                "Gateway chuyển tiếp giao diện modem qua HTTP trên IPv6. Chỉ dùng trên mạng tin cậy; " +
-                "đường truyền từ B đến A chưa được mã hóa HTTPS. Không dùng trên Wi-Fi công cộng.", 11, 0xFF9A5B00);
+                "Gateway nhận kết nối HTTP qua IPv6; đường truyền từ Android A tới modem dùng HTTPS. " +
+                "Đường truyền từ B đến A chưa mã hóa, chỉ dùng trên mạng tin cậy.", 11, 0xFF9A5B00);
         warning.setPadding(dp(12), dp(10), dp(12), dp(10));
         warning.setBackgroundColor(0xFFFFF4DF);
         LinearLayout.LayoutParams warningLp = new LinearLayout.LayoutParams(-1, -2);
@@ -236,8 +277,53 @@ public class MainActivity extends Activity {
         refreshDetails();
     }
 
+    private boolean applyModemIpFromInput() {
+        String value = modemIpInput == null ? modemHost : modemIpInput.getText().toString().trim();
+        if (!isPrivateIpv4(value)) {
+            if (modemIpInput != null) modemIpInput.setError("Nhập IPv4 nội bộ hợp lệ, ví dụ 192.168.1.1");
+            android.widget.Toast.makeText(this,
+                    "IP modem không hợp lệ. Chỉ chấp nhận IPv4 mạng nội bộ (10.x, 172.16-31.x, 192.168.x hoặc 100.64-127.x).",
+                    android.widget.Toast.LENGTH_LONG).show();
+            return false;
+        }
+        modemHost = value;
+        getSharedPreferences(PREFS_NAME, MODE_PRIVATE).edit().putString(PREF_MODEM_IP, modemHost).apply();
+        if (modemIpInput != null) modemIpInput.setError(null);
+        refreshDetails();
+        log("MODEM_CONFIG", "Đã lưu IP modem " + modemHost + ":" + MODEM_HTTPS_PORT);
+        return true;
+    }
+
+    private boolean isPrivateIpv4(String value) {
+        if (value == null || !value.matches("[0-9]{1,3}(\\.[0-9]{1,3}){3}")) return false;
+        String[] parts = value.split("\\.");
+        int[] octets = new int[4];
+        try {
+            for (int i = 0; i < 4; i++) {
+                octets[i] = Integer.parseInt(parts[i]);
+                if (octets[i] < 0 || octets[i] > 255) return false;
+            }
+        } catch (NumberFormatException e) { return false; }
+        if (octets[0] == 10) return true;
+        if (octets[0] == 192 && octets[1] == 168) return true;
+        if (octets[0] == 172 && octets[1] >= 16 && octets[1] <= 31) return true;
+        if (octets[0] == 100 && octets[1] >= 64 && octets[1] <= 127) return true;
+        return false;
+    }
+
     private void startNetworks() {
-        log("START", "Người dùng nhấn KHỞI ĐỘNG GATEWAY");
+        if (!applyModemIpFromInput()) return;
+        log("START", "Người dùng nhấn KHỞI ĐỘNG GATEWAY; modem=" + modemHost + ":" + MODEM_HTTPS_PORT);
+
+        try {
+            Intent serviceIntent = new Intent(this, GatewayService.class);
+            androidx.core.content.ContextCompat.startForegroundService(this, serviceIntent);
+        } catch (Exception e) {
+            logException("FOREGROUND_SERVICE", e);
+            postStatus("Không thể bật dịch vụ chạy nền: " + e.getMessage());
+            startButton.setEnabled(true);
+            return;
+        }
         if (cellularCallback != null || wifiCallback != null) {
             log("START", "Callback đã đăng ký, bỏ qua lần nhấn lặp");
             return;
@@ -417,18 +503,18 @@ public class MainActivity extends Activity {
                 sendHttp(clientOut, "503 Service Unavailable", "Wi-Fi modem is not connected.\n");
                 return;
             }
-            log("PROXY", method + " " + safePath(target) + " -> https://" + MODEM_HOST);
+            log("PROXY", method + " " + safePath(target) + " -> https://" + modemHost);
 
             Socket raw = wifi.getSocketFactory().createSocket();
-            raw.connect(new InetSocketAddress(MODEM_HOST, MODEM_HTTPS_PORT), 8000);
+            raw.connect(new InetSocketAddress(modemHost, MODEM_HTTPS_PORT), 8000);
             SSLSocket upstream = (SSLSocket) createModemOnlySslSocketFactory()
-                    .createSocket(raw, MODEM_HOST, MODEM_HTTPS_PORT, true);
+                    .createSocket(raw, modemHost, MODEM_HTTPS_PORT, true);
             upstream.setSoTimeout(25000);
             upstream.startHandshake();
 
             OutputStream upstreamOut = upstream.getOutputStream();
             java.io.BufferedOutputStream bufferedUpOut = new java.io.BufferedOutputStream(upstreamOut);
-            String hostHeader = "Host: " + MODEM_HOST;
+            String hostHeader = "Host: " + modemHost;
             bufferedUpOut.write((method + " " + target + " HTTP/1.1\r\n").getBytes(StandardCharsets.US_ASCII));
             boolean hasHost = false;
             boolean hasConnection = false;
@@ -445,14 +531,14 @@ public class MainActivity extends Activity {
                 if (lower.equals("connection") || lower.equals("proxy-connection") || lower.equals("keep-alive")) continue;
                 if (lower.equals("accept-encoding")) { hasEncoding = true; continue; }
                 if (lower.equals("expect")) continue;
-                if (lower.equals("origin")) value = "https://" + MODEM_HOST;
+                if (lower.equals("origin")) value = "https://" + modemHost;
                 if (lower.equals("referer")) {
                     try {
                         java.net.URI ref = java.net.URI.create(value);
                         String rp = ref.getRawPath() == null ? "/" : ref.getRawPath();
                         if (ref.getRawQuery() != null) rp += "?" + ref.getRawQuery();
-                        value = "https://" + MODEM_HOST + rp;
-                    } catch (Exception ignored) { value = "https://" + MODEM_HOST + "/"; }
+                        value = "https://" + modemHost + rp;
+                    } catch (Exception ignored) { value = "https://" + modemHost + "/"; }
                 }
                 if (lower.equals("cookie")) {
                     StringBuilder filtered = new StringBuilder();
@@ -559,7 +645,7 @@ public class MainActivity extends Activity {
         try {
             java.net.URI u = java.net.URI.create(value);
             if (u.isAbsolute() && u.getHost() != null &&
-                    (u.getHost().equals(MODEM_HOST) || u.getHost().equals("192.168.1.1"))) {
+                    u.getHost().equalsIgnoreCase(modemHost)) {
                 String path = u.getRawPath();
                 if (path == null || path.isEmpty()) path = "/";
                 return path + (u.getRawQuery() == null ? "" : "?" + u.getRawQuery()) +
@@ -631,7 +717,7 @@ public class MainActivity extends Activity {
     }
 
     private String testModemOverWifi() {
-        log("MODEM", "Bắt đầu thử kết nối HTTPS tới " + MODEM_HOST + ":" + MODEM_HTTPS_PORT);
+        log("MODEM", "Bắt đầu thử kết nối HTTPS tới " + modemHost + ":" + MODEM_HTTPS_PORT);
         Network wifi = wifiNetwork;
         if (wifi == null) return "ERROR: Chưa phát hiện Wi-Fi. Hãy kết nối Wi-Fi modem.\n";
         Socket raw = null;
@@ -640,18 +726,18 @@ public class MainActivity extends Activity {
             // SocketFactory from this Network ensures this outbound socket uses Wi-Fi,
             // independently of the phone's default network.
             raw = wifi.getSocketFactory().createSocket();
-            raw.connect(new InetSocketAddress(MODEM_HOST, MODEM_HTTPS_PORT), 5000);
+            raw.connect(new InetSocketAddress(modemHost, MODEM_HTTPS_PORT), 5000);
             // Chỉ dùng SSL bỏ qua chứng chỉ cho kết nối modem nội bộ này.
             // Socket TCP ban đầu vẫn được tạo từ wifi.getSocketFactory(), vì vậy
             // lưu lượng đi qua Wi-Fi; không thay đổi cấu hình mạng toàn ứng dụng.
             tls = (SSLSocket) createModemOnlySslSocketFactory()
-                    .createSocket(raw, MODEM_HOST, MODEM_HTTPS_PORT, true);
+                    .createSocket(raw, modemHost, MODEM_HTTPS_PORT, true);
             tls.setSoTimeout(5000);
             log("MODEM", "TCP tới modem thành công; bắt đầu TLS handshake (bỏ qua chứng chỉ riêng modem)");
             tls.startHandshake();
             log("MODEM", "TLS handshake thành công với modem (certificate verification skipped for modem only)");
             OutputStream out = tls.getOutputStream();
-            out.write(("GET / HTTP/1.1\r\nHost: " + MODEM_HOST +
+            out.write(("GET / HTTP/1.1\r\nHost: " + modemHost +
                     "\r\nConnection: close\r\n\r\n").getBytes(StandardCharsets.US_ASCII));
             out.flush();
             BufferedReader reader = new BufferedReader(new InputStreamReader(
@@ -676,8 +762,8 @@ public class MainActivity extends Activity {
      * Không dùng factory này cho API Internet hoặc host khác.
      */
     private SSLSocketFactory createModemOnlySslSocketFactory() throws Exception {
-        if (!"192.168.1.1".equals(MODEM_HOST) || MODEM_HTTPS_PORT != 443) {
-            throw new IllegalStateException("SSL bỏ qua chứng chỉ chỉ được phép cho modem 192.168.1.1:443");
+        if (!isPrivateIpv4(modemHost) || MODEM_HTTPS_PORT != 443) {
+            throw new IllegalStateException("Chỉ cho phép bỏ qua chứng chỉ với IP modem IPv4 nội bộ hợp lệ");
         }
         X509TrustManager modemOnlyTrustManager = new X509TrustManager() {
             @Override public void checkClientTrusted(X509Certificate[] chain, String authType) { }
@@ -699,6 +785,7 @@ public class MainActivity extends Activity {
     }
 
     private void copyGatewayLink(boolean modemTest) {
+        if (modemTest && !applyModemIpFromInput()) return;
         Inet6Address ip = cellularIpv6;
         if (!running || ip == null) {
             android.widget.Toast.makeText(this, "Chưa có IPv6 4G hoặc Gateway chưa chạy.", android.widget.Toast.LENGTH_LONG).show();
@@ -722,7 +809,7 @@ public class MainActivity extends Activity {
             b.append("4G Cellular: ").append(cellularNetwork == null ? "Chưa phát hiện" : "Đã phát hiện").append("\n");
             b.append("IPv6 Cellular: ").append(cellularIpv6 == null ? "Chưa tìm thấy IPv6 global" : cellularIpv6.getHostAddress()).append("\n");
             b.append("Wi-Fi: ").append(wifiNetwork == null ? "Chưa phát hiện" : "Đã phát hiện").append("\n");
-            b.append("Modem đích: https://").append(MODEM_HOST).append("\n");
+            b.append("Modem đích: https://").append(modemHost).append("\n");
             b.append("TCP Listener: ").append(running ? "Đang chạy" : "Chưa chạy").append(" :").append(PORT).append("\n");
             b.append("Token: ").append(accessToken);
             details.setText(b.toString());
@@ -770,14 +857,15 @@ public class MainActivity extends Activity {
         cellularNetwork = null;
         wifiNetwork = null;
         cellularIpv6 = null;
+        stopService(new Intent(this, GatewayService.class));
         startButton.setEnabled(true);
         status.setText("Đã dừng.");
         refreshDetails();
     }
 
     @Override protected void onDestroy() {
-        stopAll();
-        if (executor != null) executor.shutdownNow();
+        // Gateway được giữ bởi Foreground Service. Không dừng listener khi Activity
+        // bị đóng hoặc màn hình bị xoay/tái tạo.
         super.onDestroy();
     }
 
