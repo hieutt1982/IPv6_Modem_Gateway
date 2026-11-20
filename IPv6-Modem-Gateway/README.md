@@ -1,4 +1,4 @@
-# IPv6 Modem Gateway 0.5.2 – Configurable Modem IPv4
+# IPv6 Modem Gateway 0.5.4 – Reverse Proxy + Modem UI URL Rewrite
 
 ## Mục tiêu
 Android B truy cập giao diện modem thông qua IPv6 Cellular của Android A. Android A nhận HTTP request trên IPv6, sau đó kết nối tới modem qua Wi-Fi bằng socket thuộc riêng `wifiNetwork`.
@@ -57,3 +57,13 @@ Mã nguồn Android Gradle project. Môi trường tạo gói này không có An
 - No modem API, JSON, authentication API, CSRF, or vendor-specific request-body logic is added.
 
 The proxy still performs limited HTTP proxy compatibility handling (upstream Host/Origin/Referer and browser-facing redirect/cookie scope) so a modem web interface can be displayed through a different public origin. Request and response bodies are streamed without JSON parsing or application-level modification.
+
+
+## Version 0.5.4 – sửa chuyển tiếp URL tuyệt đối trong giao diện modem
+
+- Giữ nguyên kiến trúc IPv6 Cellular listener → Wi-Fi upstream HTTPS modem.
+- Khi phản hồi là nội dung văn bản có Content-Length (HTML/CSS/JavaScript/JSON/XML/SVG, tối đa 8 MiB), Gateway thay URL tuyệt đối trỏ tới IP modem bằng origin Gateway mà trình duyệt Android B đang dùng. Điều này giúp các tài nguyên/API được gọi bằng URL tuyệt đối tiếp tục đi qua Gateway thay vì trình duyệt truy cập thẳng IP modem.
+- Tính lại Content-Length sau khi thay nội dung; phản hồi nhị phân và nội dung văn bản lớn vẫn được stream nguyên trạng. Phản hồi chunked được giữ nguyên framing.
+- Tăng versionCode lên 9, versionName 0.5.4.
+
+Lưu ý: Đây là xử lý tương thích proxy tổng quát, chưa thể bảo đảm mọi firmware modem (đặc biệt WebSocket, CSP nghiêm ngặt, URL được mã hóa/ghép động hoặc host phụ) đều hoạt động. Cần kiểm thử trực tiếp đăng nhập và lưu cấu hình trên đúng modem. Android B → A vẫn dùng HTTP nên không an toàn khi đi qua mạng không tin cậy.

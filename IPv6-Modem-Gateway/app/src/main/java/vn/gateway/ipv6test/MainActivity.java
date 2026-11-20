@@ -78,7 +78,7 @@ public class MainActivity extends Activity {
     @Override public void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         initLogging();
-        log("APP", "onCreate version=0.5.3-ipv6-to-ipv4-gateway");
+        log("APP", "onCreate version=0.5.4-ipv6-to-ipv4-gateway");
         final Thread.UncaughtExceptionHandler oldHandler = Thread.getDefaultUncaughtExceptionHandler();
         Thread.setDefaultUncaughtExceptionHandler((thread, throwable) -> {
             logException("UNCAUGHT", throwable);
@@ -606,6 +606,8 @@ public class MainActivity extends Activity {
             java.util.List<String> responseHeaders = new java.util.ArrayList<>();
             boolean chunkedResponse = false;
             long responseLength = -1;
+            String responseType = "";
+            String browserHost = requestHeader(headers, "Host");
             String statusCode = statusLine.length() >= 12 ? statusLine.substring(9, 12) : "200";
             while ((line = readHttpLine(upstreamIn)) != null && !line.isEmpty()) {
                 int colon = line.indexOf(':');
@@ -616,21 +618,36 @@ public class MainActivity extends Activity {
                     if (name.equals("content-length")) {
                         try { responseLength = Long.parseLong(value); } catch (Exception ignored) { }
                     }
+                    if (name.equals("content-type")) responseType = value.toLowerCase(Locale.US);
                     if (name.equals("connection") || name.equals("keep-alive") || name.equals("proxy-connection")) continue;
+                    if (name.equals("transfer-encoding") && !chunkedResponse) continue;
                     if (name.equals("location")) value = rewriteLocation(value);
                     if (name.equals("set-cookie")) value = rewriteCookie(value);
+                    if (name.equals("content-length") && !method.equals("HEAD") && !statusCode.equals("204") && !statusCode.equals("304")) continue;
                     responseHeaders.add(line.substring(0, colon + 1) + " " + value);
                 } else responseHeaders.add(line);
             }
+
+            boolean noBody = method.equals("HEAD") || statusCode.equals("204") || statusCode.equals("304") || statusCode.startsWith("1");
+            byte[] bufferedBody = null;
+            boolean textual = responseType.startsWith("text/") || responseType.contains("javascript") ||
+                    responseType.contains("json") || responseType.contains("xml") || responseType.contains("svg");
+            if (!noBody && textual && responseLength >= 0 && responseLength <= 8 * 1024 * 1024) {
+                bufferedBody = readBodyBytes(upstreamIn, responseLength);
+                bufferedBody = rewriteModemAbsoluteUrls(bufferedBody, browserHost);
+            }
+
             StringBuilder responseHead = new StringBuilder(statusLine).append("\r\n");
             for (String h : responseHeaders) responseHead.append(h).append("\r\n");
+            if (bufferedBody != null) responseHead.append("Content-Length: ").append(bufferedBody.length).append("\r\n");
+            else if (!noBody && responseLength >= 0 && !chunkedResponse) responseHead.append("Content-Length: ").append(responseLength).append("\r\n");
             responseHead.append("Connection: close\r\n\r\n");
             clientOut.write(responseHead.toString().getBytes(StandardCharsets.ISO_8859_1));
             clientOut.flush();
 
-            boolean noBody = method.equals("HEAD") || statusCode.equals("204") || statusCode.equals("304") || statusCode.startsWith("1");
             if (!noBody) {
-                if (chunkedResponse) copyChunkedBody(upstreamIn, clientOut);
+                if (bufferedBody != null) clientOut.write(bufferedBody);
+                else if (chunkedResponse) copyChunkedBody(upstreamIn, clientOut);
                 else if (responseLength >= 0) copyExactly(upstreamIn, clientOut, responseLength);
                 else copyUntilEof(upstreamIn, clientOut);
             }
@@ -644,6 +661,25 @@ public class MainActivity extends Activity {
                         "Gateway cannot reach modem: " + e.getClass().getSimpleName() + "\n");
             } catch (Exception ignored) { }
         }
+    }
+
+    private byte[] readBodyBytes(java.io.InputStream in, long length) throws Exception {
+        if (length > Integer.MAX_VALUE) throw new java.io.IOException("Response body too large");
+        java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream((int) length);
+        copyExactly(in, out, length);
+        return out.toByteArray();
+    }
+
+    private byte[] rewriteModemAbsoluteUrls(byte[] body, String browserHost) {
+        if (browserHost == null || browserHost.isEmpty()) return body;
+        try {
+            String text = new String(body, StandardCharsets.UTF_8);
+            String gateway = "http://" + browserHost;
+            text = text.replace("https://" + modemHost, gateway)
+                    .replace("http://" + modemHost, gateway)
+                    .replace("//" + modemHost, "//" + browserHost);
+            return text.getBytes(StandardCharsets.UTF_8);
+        } catch (Exception ignored) { return body; }
     }
 
     private String readHttpLine(java.io.InputStream in) throws Exception {
