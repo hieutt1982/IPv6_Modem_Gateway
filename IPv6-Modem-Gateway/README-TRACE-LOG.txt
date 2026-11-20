@@ -32,3 +32,10 @@ LƯU Ý:
 
 
 VERSION 0.5.6: Added a visible CLEAR ALL LOG button. It asks for confirmation, truncates the persistent log file, refreshes the log panel, and starts a fresh log session marker. Clearing logs does not stop Gateway or change network/proxy settings.
+
+
+PHIÊN BẢN 0.5.7 - LOG SCROLL + RED TIME
+- Khung nhật ký nằm trong TextBox có thanh cuộn dọc/ngang.
+- Tự cuộn xuống dòng mới nhất khi log được cập nhật.
+- Ngày giờ ở đầu mỗi dòng được tô đỏ và in đậm để dễ quan sát.
+- Giữ nguyên nút sao chép 100 dòng gần nhất và nút xóa toàn bộ log.

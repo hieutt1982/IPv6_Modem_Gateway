@@ -70,3 +70,6 @@ Lưu ý: Đây là xử lý tương thích proxy tổng quát, chưa thể bảo
 
 
 Version 0.5.6 adds a confirmed Clear All Logs action. It clears the persistent log file without stopping Gateway.
+
+
+Log UI phiên bản 0.5.7: khung log có thanh cuộn, tự cuộn đến dòng mới nhất và phần ngày giờ được tô đỏ.

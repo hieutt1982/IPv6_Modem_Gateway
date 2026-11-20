@@ -69,6 +69,7 @@ public class MainActivity extends Activity {
     private TextView status;
     private TextView details;
     private TextView logView;
+    private ScrollView logScroll;
     private File logFile;
     private final Object logLock = new Object();
     private final AtomicLong requestSequence = new AtomicLong(0);
@@ -80,7 +81,7 @@ public class MainActivity extends Activity {
     @Override public void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         initLogging();
-        log("APP", "onCreate version=0.5.6-TRACE-LOG-CLEAR");
+        log("APP", "onCreate version=0.5.7-LOG-SCROLL-RED-TIME");
         final Thread.UncaughtExceptionHandler oldHandler = Thread.getDefaultUncaughtExceptionHandler();
         Thread.setDefaultUncaughtExceptionHandler((thread, throwable) -> {
             logException("UNCAUGHT", throwable);
@@ -146,7 +147,7 @@ public class MainActivity extends Activity {
         TextView title = makeText("IPv6 MODEM GATEWAY", 20, 0xFFFFFFFF);
         title.setTypeface(null, android.graphics.Typeface.BOLD);
         header.addView(title);
-        TextView subtitle = makeText("REVERSE PROXY • PHIÊN BẢN 0.5.6 TRACE LOG + CLEAR", 11, 0xFFD5E3F2);
+        TextView subtitle = makeText("REVERSE PROXY • PHIÊN BẢN 0.5.7 LOG SCROLL + RED TIME", 11, 0xFFD5E3F2);
         subtitle.setPadding(0, dp(5), 0, 0);
         header.addView(subtitle);
         root.addView(header);
@@ -281,11 +282,22 @@ public class MainActivity extends Activity {
         logHeading.setTypeface(null, android.graphics.Typeface.BOLD);
         logHeading.setPadding(dp(2), dp(14), 0, dp(7));
         root.addView(logHeading);
+        logScroll = new ScrollView(this);
+        logScroll.setFillViewport(false);
+        logScroll.setVerticalScrollBarEnabled(true);
+        logScroll.setHorizontalScrollBarEnabled(true);
+        logScroll.setScrollbarFadingEnabled(false);
+        logScroll.setScrollBarStyle(android.view.View.SCROLLBARS_INSIDE_INSET);
+        logScroll.setBackgroundColor(0xFFFFFFFF);
+        logScroll.setPadding(dp(2), dp(2), dp(2), dp(2));
         logView = makeText("Log sẽ xuất hiện tại đây.", 10, muted);
+        logView.setTypeface(android.graphics.Typeface.MONOSPACE);
         logView.setTextIsSelectable(true);
         logView.setPadding(dp(10), dp(10), dp(10), dp(10));
         logView.setBackgroundColor(0xFFFFFFFF);
-        root.addView(logView, new LinearLayout.LayoutParams(-1, dp(190)));
+        logScroll.addView(logView, new ScrollView.LayoutParams(
+                ScrollView.LayoutParams.MATCH_PARENT, ScrollView.LayoutParams.WRAP_CONTENT));
+        root.addView(logScroll, new LinearLayout.LayoutParams(-1, dp(210)));
         refreshLogView();
 
         TextView warning = makeText(
@@ -1102,8 +1114,34 @@ public class MainActivity extends Activity {
         runOnUiThread(() -> {
             String all = readLog();
             if (all.length() > 12000) all = all.substring(all.length() - 12000);
-            logView.setText(all);
+
+            // Tô đỏ phần ngày giờ ở đầu mỗi dòng: yyyy-MM-dd HH:mm:ss.SSS
+            android.text.SpannableString styled = new android.text.SpannableString(all);
+            int lineStart = 0;
+            while (lineStart < all.length()) {
+                int lineEnd = all.indexOf('\n', lineStart);
+                if (lineEnd < 0) lineEnd = all.length();
+                int stampEnd = Math.min(lineStart + 23, lineEnd);
+                if (stampEnd - lineStart == 23 && isLogTimestamp(all, lineStart)) {
+                    styled.setSpan(new android.text.style.ForegroundColorSpan(0xFFD92D20),
+                            lineStart, stampEnd, android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+                    styled.setSpan(new android.text.style.StyleSpan(android.graphics.Typeface.BOLD),
+                            lineStart, stampEnd, android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+                }
+                lineStart = lineEnd + 1;
+            }
+            logView.setText(styled);
+            if (logScroll != null) {
+                logScroll.post(() -> logScroll.fullScroll(android.view.View.FOCUS_DOWN));
+            }
         });
+    }
+
+    private boolean isLogTimestamp(String value, int start) {
+        if (start + 23 > value.length()) return false;
+        return value.charAt(start + 4) == '-' && value.charAt(start + 7) == '-' &&
+                value.charAt(start + 10) == ' ' && value.charAt(start + 13) == ':' &&
+                value.charAt(start + 16) == ':' && value.charAt(start + 19) == '.';
     }
 
     private void shareLogFile() {
