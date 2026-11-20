@@ -540,7 +540,7 @@ public class MainActivity extends Activity {
                 trace.mark("02-PROTOCOL", "CLIENT_PROTOCOL_MISMATCH: nhận TLS handshake trên cổng HTTP; đóng kết nối ngay");
                 return;
             }
-            if (b1 < 0) {
+            if (firstByte < 0) {
                 trace.mark("02-READ-REQUEST", "Client đóng kết nối trước khi gửi dữ liệu");
                 return;
             }
