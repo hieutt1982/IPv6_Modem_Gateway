@@ -1,25 +1,28 @@
-# IPv6 Modem Gateway – 0.3.1
+# IPv6 Modem Gateway 0.3.1 – bản ghi log chẩn đoán
 
-## Thay đổi giao diện
-- Giao diện tiếng Việt gọn, chia rõ trạng thái, điều khiển, thông tin kết nối và địa chỉ kiểm tra.
-- Nút khởi động/dừng rõ ràng; có nút sao chép token.
-- Tăng khả năng đọc trên màn hình điện thoại và cho phép chọn sao chép thông tin.
+## Thay đổi
+- Giữ giao diện tiếng Việt, nút khởi động/dừng và các nút sao chép link IPv6, link kiểm tra modem, token.
+- Thêm nhật ký hoạt động ghi vào bộ nhớ riêng của ứng dụng: `files/logs/gateway-log.txt`.
+- Thêm nút **CHIA SẺ FILE LOG LỖI** để gửi file log qua ứng dụng chia sẻ trên Android.
+- Thêm nút **SAO CHÉP LOG** để sao chép nội dung log.
+- Ghi lỗi kèm Stack Trace cho lỗi trong luồng ứng dụng, lỗi đăng ký mạng, bind TCP và kiểm tra modem.
+- Chuyển cập nhật giao diện thông tin mạng về UI thread để tránh cập nhật TextView từ callback thread.
+- Chặn nhấn khởi động lặp khi callback mạng đã đăng ký.
 
-## Chức năng mạng được giữ từ 0.2.0
-- Theo dõi mạng Cellular và Wi-Fi đồng thời bằng hai NetworkCallback.
-- Mở IPv6 TCP listener gắn trực tiếp vào địa chỉ IPv6 Cellular.
-- Không bind toàn bộ tiến trình vào 4G; kết nối modem thử nghiệm dùng SocketFactory của Wi-Fi.
-- Endpoint `/TOKEN/modem-test` thử HTTPS tới `192.168.1.1:443` và vẫn xác thực chứng chỉ TLS theo mặc định Android.
+## Cách lấy log
+1. Cài APK và mở ứng dụng.
+2. Nhấn **KHỞI ĐỘNG GATEWAY** để tái hiện lỗi.
+3. Mở lại ứng dụng nếu bị thoát.
+4. Nhấn **CHIA SẺ FILE LOG LỖI**.
+5. Chọn Gmail/Zalo/ChatGPT hoặc lưu file, sau đó gửi `gateway-log.txt`.
 
-## Cách thử
-1. Cài APK trên Android A.
-2. Bật 4G và kết nối Wi-Fi tới modem.
-3. Mở app, nhấn **KHỞI ĐỘNG GATEWAY**.
-4. Trên Android B, mở URL IPv6 kiểm tra hiển thị trong ứng dụng.
-5. Mở URL có đuôi `/modem-test` để kiểm tra kết nối HTTPS từ A tới modem.
+Nếu ứng dụng crash trước khi Activity mở, Android vẫn có thể ghi log hệ thống; phần log ứng dụng sẽ ghi được từ lúc `onCreate` bắt đầu.
 
-## Giới hạn an toàn
-Bản 0.3.1 CHƯA phải reverse proxy giao diện quản trị. Nó chỉ kiểm tra riêng đường truyền B → A qua IPv6 và A → modem qua Wi-Fi/HTTPS. Không nhập hoặc gửi mật khẩu modem qua endpoint HTTP. Nếu modem dùng chứng chỉ tự ký, phép thử TLS có thể báo chứng chỉ không được Android tin cậy.
+## Chức năng mạng
+- Theo dõi Cellular và Wi-Fi bằng hai NetworkCallback.
+- Listener IPv6 gắn trực tiếp vào địa chỉ IPv6 Cellular.
+- Không bind toàn bộ process vào Cellular; kết nối modem thử nghiệm sử dụng SocketFactory của Wi-Fi.
+- `/TOKEN/modem-test` thử HTTPS tới `192.168.1.1:443` và giữ xác thực chứng chỉ TLS mặc định.
 
-
-Version 0.3.1: automatically displays the detected Cellular global IPv6 and complete tokenized test URLs; provides copy buttons for the IPv6 test URL and modem HTTPS diagnostic URL.
+## Giới hạn
+Đây vẫn là bản kiểm tra đường truyền, chưa phải reverse proxy giao diện quản trị modem. Nếu modem dùng chứng chỉ TLS tự ký, kiểm tra HTTPS có thể báo lỗi chứng chỉ.
