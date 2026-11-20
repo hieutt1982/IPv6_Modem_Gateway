@@ -46,6 +46,7 @@ public class MainActivity extends Activity {
     private ExecutorService executor;
     private TextView status;
     private TextView details;
+    private TextView testLinks;
     private Button startButton;
     private Button stopButton;
     private String accessToken;
@@ -142,24 +143,33 @@ public class MainActivity extends Activity {
         testHeading.setTypeface(null, android.graphics.Typeface.BOLD);
         testHeading.setPadding(dp(2), dp(14), 0, dp(7));
         root.addView(testHeading);
-        TextView instructions = makeText(
-                "1. Kiểm tra IPv6: http://[IPv6-4G-của-A]:8080/" + accessToken +
-                "\n\n2. Kiểm tra HTTPS modem: http://[IPv6-4G-của-A]:8080/" + accessToken + "/modem-test" +
-                "\n\nThay IPv6-4G-của-A bằng địa chỉ IPv6 hiển thị ở phần thông tin kết nối.", 12, muted);
-        instructions.setTextIsSelectable(true);
-        instructions.setPadding(dp(12), dp(12), dp(12), dp(12));
-        instructions.setBackgroundColor(0xFFFFFFFF);
-        root.addView(instructions);
+        testLinks = makeText("Đang chờ IPv6 4G...\nKhởi động Gateway để tự tạo link kiểm tra.", 12, muted);
+        testLinks.setTextIsSelectable(true);
+        testLinks.setPadding(dp(12), dp(12), dp(12), dp(12));
+        testLinks.setBackgroundColor(0xFFFFFFFF);
+        root.addView(testLinks);
 
-        Button copyButton = new Button(this);
-        copyButton.setText("SAO CHÉP TOKEN");
-        copyButton.setTextSize(12);
-        copyButton.setOnClickListener(v -> {
+        Button copyIpv6Link = new Button(this);
+        copyIpv6Link.setText("SAO CHÉP LINK KIỂM TRA IPv6");
+        copyIpv6Link.setTextSize(12);
+        copyIpv6Link.setOnClickListener(v -> copyTestLink(false));
+        root.addView(copyIpv6Link);
+
+        Button copyModemLink = new Button(this);
+        copyModemLink.setText("SAO CHÉP LINK KIỂM TRA MODEM");
+        copyModemLink.setTextSize(12);
+        copyModemLink.setOnClickListener(v -> copyTestLink(true));
+        root.addView(copyModemLink);
+
+        Button copyTokenButton = new Button(this);
+        copyTokenButton.setText("SAO CHÉP TOKEN RIÊNG");
+        copyTokenButton.setTextSize(12);
+        copyTokenButton.setOnClickListener(v -> {
             android.content.ClipboardManager clipboard = (android.content.ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
             clipboard.setPrimaryClip(android.content.ClipData.newPlainText("Gateway token", accessToken));
             android.widget.Toast.makeText(this, "Đã sao chép token", android.widget.Toast.LENGTH_SHORT).show();
         });
-        root.addView(copyButton);
+        root.addView(copyTokenButton);
 
         TextView warning = makeText(
                 "LƯU Ý: Bản 0.3.0 chỉ kiểm tra đường truyền IPv6 và kết nối HTTPS tới modem. " +
@@ -357,6 +367,31 @@ public class MainActivity extends Activity {
         b.append("TCP Listener: ").append(running ? "Đang chạy" : "Chưa chạy").append(" :").append(PORT).append("\n");
         b.append("Token: ").append(accessToken);
         details.setText(b.toString());
+        if (testLinks != null) {
+            if (cellularIpv6 == null) {
+                testLinks.setText("Chưa có IPv6 4G global.\nHãy bật dữ liệu di động và nhấn KHỞI ĐỘNG GATEWAY.");
+            } else {
+                String ip = cellularIpv6.getHostAddress();
+                String base = "http://[" + ip + "]:" + PORT + "/" + accessToken;
+                testLinks.setText("IPv6 của điện thoại Gateway (Android A):\n" + ip +
+                        "\n\nLINK KIỂM TRA IPv6 (mở trên Android B):\n" + base +
+                        "\n\nLINK KIỂM TRA HTTPS MODEM:\n" + base + "/modem-test" +
+                        "\n\n" + (running ? "Gateway đang chạy." : "Đang chờ Gateway mở cổng..."));
+            }
+        }
+    }
+
+
+    private void copyTestLink(boolean modemTest) {
+        if (cellularIpv6 == null) {
+            android.widget.Toast.makeText(this, "Chưa lấy được IPv6 4G. Hãy khởi động Gateway.", android.widget.Toast.LENGTH_LONG).show();
+            return;
+        }
+        String link = "http://[" + cellularIpv6.getHostAddress() + "]:" + PORT + "/" + accessToken;
+        if (modemTest) link += "/modem-test";
+        android.content.ClipboardManager clipboard = (android.content.ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
+        clipboard.setPrimaryClip(android.content.ClipData.newPlainText("IPv6 Gateway test link", link));
+        android.widget.Toast.makeText(this, "Đã sao chép link đầy đủ", android.widget.Toast.LENGTH_SHORT).show();
     }
 
     private boolean isGlobal(Inet6Address a) {

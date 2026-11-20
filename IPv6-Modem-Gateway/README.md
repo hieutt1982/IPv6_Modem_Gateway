@@ -1,4 +1,4 @@
-# IPv6 Modem Gateway – 0.3.0
+# IPv6 Modem Gateway – 0.3.1
 
 ## Thay đổi giao diện
 - Giao diện tiếng Việt gọn, chia rõ trạng thái, điều khiển, thông tin kết nối và địa chỉ kiểm tra.
@@ -19,4 +19,7 @@
 5. Mở URL có đuôi `/modem-test` để kiểm tra kết nối HTTPS từ A tới modem.
 
 ## Giới hạn an toàn
-Bản 0.3.0 CHƯA phải reverse proxy giao diện quản trị. Nó chỉ kiểm tra riêng đường truyền B → A qua IPv6 và A → modem qua Wi-Fi/HTTPS. Không nhập hoặc gửi mật khẩu modem qua endpoint HTTP. Nếu modem dùng chứng chỉ tự ký, phép thử TLS có thể báo chứng chỉ không được Android tin cậy.
+Bản 0.3.1 CHƯA phải reverse proxy giao diện quản trị. Nó chỉ kiểm tra riêng đường truyền B → A qua IPv6 và A → modem qua Wi-Fi/HTTPS. Không nhập hoặc gửi mật khẩu modem qua endpoint HTTP. Nếu modem dùng chứng chỉ tự ký, phép thử TLS có thể báo chứng chỉ không được Android tin cậy.
+
+
+Version 0.3.1: automatically displays the detected Cellular global IPv6 and complete tokenized test URLs; provides copy buttons for the IPv6 test URL and modem HTTPS diagnostic URL.
