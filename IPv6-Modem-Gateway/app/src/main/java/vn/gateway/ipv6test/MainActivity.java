@@ -30,6 +30,10 @@ import java.net.Inet6Address;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.net.ServerSocket;
+import javax.net.ssl.SSLServerSocket;
+import javax.net.ssl.SSLSocket;
+import java.security.KeyStore;
+import javax.net.ssl.KeyManagerFactory;
 import java.net.Socket;
 import java.nio.charset.StandardCharsets;
 import java.security.SecureRandom;
@@ -42,7 +46,6 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.TimeUnit;
-import javax.net.ssl.SSLSocket;
 import javax.net.ssl.SSLSocketFactory;
 import javax.net.ssl.SSLContext;
 import javax.net.ssl.TrustManager;
@@ -51,6 +54,7 @@ import java.security.cert.X509Certificate;
 
 public class MainActivity extends Activity {
     private static final int PORT = 8080;
+    private static final String GATEWAY_KEYSTORE_PASSWORD = "GatewayTest2026";
     private static final int MODEM_HTTPS_PORT = 443;
     private static final String PREFS_NAME = "gateway_settings";
     private static final String PREF_MODEM_IP = "modem_ip";
@@ -64,7 +68,7 @@ public class MainActivity extends Activity {
     private Network cellularNetwork;
     private Network wifiNetwork;
     private Inet6Address cellularIpv6;
-    private ServerSocket serverSocket;
+    private SSLServerSocket serverSocket;
     private ExecutorService executor;
     private TextView status;
     private TextView details;
@@ -81,7 +85,7 @@ public class MainActivity extends Activity {
     @Override public void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         initLogging();
-        log("APP", "onCreate version=0.5.8-HTTP-SNIFF-TIMEOUT-FIX");
+        log("APP", "onCreate version=0.5.9-HTTPS-IPV6-TEST");
         final Thread.UncaughtExceptionHandler oldHandler = Thread.getDefaultUncaughtExceptionHandler();
         Thread.setDefaultUncaughtExceptionHandler((thread, throwable) -> {
             logException("UNCAUGHT", throwable);
@@ -147,7 +151,7 @@ public class MainActivity extends Activity {
         TextView title = makeText("IPv6 MODEM GATEWAY", 20, 0xFFFFFFFF);
         title.setTypeface(null, android.graphics.Typeface.BOLD);
         header.addView(title);
-        TextView subtitle = makeText("REVERSE PROXY • PHIÊN BẢN 0.5.8 HTTP SNIFF + LOG", 11, 0xFFD5E3F2);
+        TextView subtitle = makeText("REVERSE PROXY • PHIÊN BẢN 0.5.9 HTTPS IPv6 + LOG", 11, 0xFFD5E3F2);
         subtitle.setPadding(0, dp(5), 0, 0);
         header.addView(subtitle);
         root.addView(header);
@@ -301,8 +305,8 @@ public class MainActivity extends Activity {
         refreshLogView();
 
         TextView warning = makeText(
-                "Gateway nhận kết nối HTTP qua IPv6; đường truyền từ Android A tới modem dùng HTTPS. " +
-                "Đường truyền từ B đến A chưa mã hóa, chỉ dùng trên mạng tin cậy.", 11, 0xFF9A5B00);
+                "Gateway nhận kết nối HTTPS qua IPv6 bằng chứng chỉ tự ký. Android B có thể hiển thị cảnh báo chứng chỉ. " +
+                "Đường truyền từ Android A tới modem tiếp tục dùng HTTPS qua Wi-Fi.", 11, 0xFF9A5B00);
         warning.setPadding(dp(12), dp(10), dp(12), dp(10));
         warning.setBackgroundColor(0xFFFFF4DF);
         LinearLayout.LayoutParams warningLp = new LinearLayout.LayoutParams(-1, -2);
@@ -464,22 +468,22 @@ public class MainActivity extends Activity {
         executor.execute(() -> {
             try {
                 log("SERVER", "Đang bind listener vào " + bindAddress.getHostAddress() + ":" + PORT);
-                // Bind listener directly to the Cellular IPv6 address.
-                // Do NOT bind the whole process to Cellular: modem requests must use Wi-Fi.
-                ServerSocket ss = new ServerSocket();
+                // HTTPS listener is bound only to Cellular IPv6. The modem upstream
+                // continues to use wifi.getSocketFactory() and is not rebound to Cellular.
+                SSLServerSocket ss = createGatewaySslServerSocket();
                 ss.setReuseAddress(true);
                 ss.bind(new InetSocketAddress(bindAddress, PORT), 20);
                 serverSocket = ss;
                 running = true;
-                log("SERVER", "Listener đã mở thành công cổng " + PORT);
-                postStatus("TCP Server đang nghe trên IPv6 Cellular cổng " + PORT);
+                log("SERVER", "HTTPS Listener đã mở thành công cổng " + PORT);
+                postStatus("HTTPS Server đang nghe trên IPv6 Cellular cổng " + PORT);
                 runOnUiThread(() -> {
                     stopButton.setEnabled(true);
                     refreshDetails();
                 });
                 while (running) {
-                    Socket client = ss.accept();
-                    log("HTTP", "Client inbound: " + client.getInetAddress());
+                    SSLSocket client = (SSLSocket) ss.accept();
+                    log("HTTPS", "Client inbound: " + client.getInetAddress());
                     executor.execute(() -> handleClient(client));
                 }
             } catch (Exception e) {
@@ -490,6 +494,20 @@ public class MainActivity extends Activity {
                 runOnUiThread(() -> startButton.setEnabled(true));
             }
         });
+    }
+
+    private SSLServerSocket createGatewaySslServerSocket() throws Exception {
+        KeyStore keyStore = KeyStore.getInstance("PKCS12");
+        try (java.io.InputStream in = getAssets().open("gateway_https.p12")) {
+            keyStore.load(in, GATEWAY_KEYSTORE_PASSWORD.toCharArray());
+        }
+        KeyManagerFactory kmf = KeyManagerFactory.getInstance(KeyManagerFactory.getDefaultAlgorithm());
+        kmf.init(keyStore, GATEWAY_KEYSTORE_PASSWORD.toCharArray());
+        SSLContext context = SSLContext.getInstance("TLS");
+        context.init(kmf.getKeyManagers(), null, new SecureRandom());
+        SSLServerSocket ss = (SSLServerSocket) context.getServerSocketFactory().createServerSocket();
+        ss.setEnabledProtocols(new String[]{"TLSv1.2"});
+        return ss;
     }
 
     // Mỗi HTTP request có mã riêng và thời gian từng công đoạn (không thay đổi luồng proxy).
@@ -525,27 +543,14 @@ public class MainActivity extends Activity {
         RequestTrace trace = new RequestTrace();
         trace.mark("01-INBOUND", "Nhận kết nối từ " + client.getInetAddress());
         try (Socket s = client) {
-            // Listener này chỉ phục vụ HTTP thường. Một số trình duyệt/thành phần
-            // thử mở HTTPS vào cùng cổng; nhận diện TLS ClientHello sớm để không
-            // giữ worker 25 giây rồi mới timeout như trước.
-            s.setSoTimeout(5000);
-            trace.mark("02-READ-REQUEST", "Kiểm tra giao thức và chờ HTTP request line (timeout 5s)");
+            s.setSoTimeout(15000);
+            trace.mark("02-TLS", "Bắt đầu TLS handshake từ Android B");
+            ((SSLSocket) s).setUseClientMode(false);
+            ((SSLSocket) s).startHandshake();
+            trace.mark("02-TLS", "TLS handshake đầu vào hoàn tất");
+            s.setSoTimeout(25000);
             java.io.BufferedInputStream in = new java.io.BufferedInputStream(s.getInputStream());
             OutputStream clientOut = s.getOutputStream();
-            in.mark(1);
-            int firstByte = in.read();
-            in.reset();
-            // TLS handshake record bắt đầu bằng 0x16; HTTP method bắt đầu bằng ASCII.
-            if (firstByte == 0x16) {
-                trace.mark("02-PROTOCOL", "CLIENT_PROTOCOL_MISMATCH: nhận TLS handshake trên cổng HTTP; đóng kết nối ngay");
-                return;
-            }
-            if (firstByte < 0) {
-                trace.mark("02-READ-REQUEST", "Client đóng kết nối trước khi gửi dữ liệu");
-                return;
-            }
-            // Sau khi xác nhận không phải TLS, giữ timeout dài hơn cho request hợp lệ.
-            s.setSoTimeout(25000);
             String requestLine = readHttpLine(in);
             if (requestLine == null || requestLine.isEmpty()) {
                 trace.mark("02-READ-REQUEST", "Không nhận được request line; đóng kết nối");
@@ -567,7 +572,7 @@ public class MainActivity extends Activity {
             String tokenPrefix = "/" + accessToken;
             if (target.equals(tokenPrefix) || target.equals(tokenPrefix + "/")) {
                 String host = requestHeader(headers, "Host");
-                String cookie = "GW_AUTH=" + accessToken + "; Path=/; HttpOnly; SameSite=Lax";
+                String cookie = "GW_AUTH=" + accessToken + "; Path=/; Secure; HttpOnly; SameSite=Lax";
                 String location = "/";
                 String response = "HTTP/1.1 302 Found\r\nLocation: " + location +
                         "\r\nSet-Cookie: " + cookie +
@@ -763,7 +768,7 @@ public class MainActivity extends Activity {
         if (browserHost == null || browserHost.isEmpty()) return body;
         try {
             String text = new String(body, StandardCharsets.UTF_8);
-            String gateway = "http://" + browserHost;
+            String gateway = "https://" + browserHost;
             text = text.replace("https://" + modemHost, gateway)
                     .replace("http://" + modemHost, gateway)
                     .replace("//" + modemHost, "//" + browserHost);
@@ -824,7 +829,7 @@ public class MainActivity extends Activity {
             String attr = parts[i].trim();
             String lower = attr.toLowerCase(Locale.US);
             if (lower.startsWith("domain=")) continue;
-            if (lower.equals("secure")) continue; // B connects to this Gateway over HTTP; modem-side TLS remains enabled.
+            // Preserve Secure because Android B now reaches Gateway over HTTPS.
             out.append("; ").append(attr);
         }
         return out.toString();
@@ -972,7 +977,7 @@ public class MainActivity extends Activity {
         int zone = host.indexOf('%');
         if (zone >= 0) host = host.substring(0, zone);
         final String token = accessToken;
-        String url = "http://[" + host + "]:" + PORT + "/" + token + (modemTest ? "/modem-test" : "/");
+        String url = "https://[" + host + "]:" + PORT + "/" + token + (modemTest ? "/modem-test" : "/");
         android.content.ClipboardManager cb = (android.content.ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
         cb.setPrimaryClip(android.content.ClipData.newPlainText("Gateway URL", url));
         log("COPY_LINK", "Đã sao chép " + (modemTest ? "modem-test" : "IPv6 test") + " URL");
@@ -987,7 +992,7 @@ public class MainActivity extends Activity {
             b.append("IPv6 Cellular: ").append(cellularIpv6 == null ? "Chưa tìm thấy IPv6 global" : cellularIpv6.getHostAddress()).append("\n");
             b.append("Wi-Fi: ").append(wifiNetwork == null ? "Chưa phát hiện" : "Đã phát hiện").append("\n");
             b.append("Modem đích: https://").append(modemHost).append("\n");
-            b.append("TCP Listener: ").append(running ? "Đang chạy" : "Chưa chạy").append(" :").append(PORT).append("\n");
+            b.append("HTTPS Listener: ").append(running ? "Đang chạy" : "Chưa chạy").append(" :").append(PORT).append("\n");
             b.append("Token: ").append(accessToken);
             details.setText(b.toString());
         });
