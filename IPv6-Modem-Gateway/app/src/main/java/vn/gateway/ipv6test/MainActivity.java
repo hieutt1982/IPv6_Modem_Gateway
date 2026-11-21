@@ -502,11 +502,13 @@ public class MainActivity extends Activity {
             client.setTcpNoDelay(true);
             Network wifi = wifiNetwork;
             if (wifi == null) throw new IllegalStateException("Wi-Fi modem chưa kết nối");
-            log("RELAY", "Mở upstream qua Wi-Fi tới " + modemHost + ":" + MODEM_HTTPS_PORT);
+            // Chụp IP đã lưu tại thời điểm mở phiên relay để log và kết nối luôn dùng cùng một giá trị.
+            final String targetModemHost = modemHost;
+            log("RELAY", "Mở upstream qua Wi-Fi tới " + targetModemHost + ":" + MODEM_HTTPS_PORT);
             upstream = wifi.getSocketFactory().createSocket();
             upstream.setKeepAlive(true);
             upstream.setTcpNoDelay(true);
-            upstream.connect(new InetSocketAddress(modemHost, MODEM_HTTPS_PORT), 8000);
+            upstream.connect(new InetSocketAddress(targetModemHost, MODEM_HTTPS_PORT), 8000);
             log("RELAY", "Đã kết nối upstream modem; bắt đầu chuyển tiếp hai chiều");
 
             final Socket target = upstream;
