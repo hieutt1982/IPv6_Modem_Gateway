@@ -30,7 +30,6 @@ import java.net.Inet6Address;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.net.ServerSocket;
-import javax.net.ssl.SSLServerSocket;
 import javax.net.ssl.SSLSocket;
 import java.security.KeyStore;
 import javax.net.ssl.KeyManagerFactory;
@@ -54,8 +53,7 @@ import java.security.cert.X509Certificate;
 
 public class MainActivity extends Activity {
     private static final int PORT = 8080;
-    private static final String GATEWAY_KEYSTORE_PASSWORD = "GatewayTest2026";
-    private static final int MODEM_HTTPS_PORT = 443;
+        private static final int MODEM_HTTPS_PORT = 443;
     private static final String PREFS_NAME = "gateway_settings";
     private static final String PREF_MODEM_IP = "modem_ip";
     private static final String PREF_ACCESS_TOKEN = "access_token_v1";
@@ -68,7 +66,7 @@ public class MainActivity extends Activity {
     private Network cellularNetwork;
     private Network wifiNetwork;
     private Inet6Address cellularIpv6;
-    private SSLServerSocket serverSocket;
+    private ServerSocket serverSocket;
     private ExecutorService executor;
     private TextView status;
     private TextView details;
@@ -85,7 +83,7 @@ public class MainActivity extends Activity {
     @Override public void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         initLogging();
-        log("APP", "onCreate version=0.5.9-HTTPS-IPV6-TEST");
+        log("APP", "onCreate version=0.6.0-TCP-RELAY");
         final Thread.UncaughtExceptionHandler oldHandler = Thread.getDefaultUncaughtExceptionHandler();
         Thread.setDefaultUncaughtExceptionHandler((thread, throwable) -> {
             logException("UNCAUGHT", throwable);
@@ -151,7 +149,7 @@ public class MainActivity extends Activity {
         TextView title = makeText("IPv6 MODEM GATEWAY", 20, 0xFFFFFFFF);
         title.setTypeface(null, android.graphics.Typeface.BOLD);
         header.addView(title);
-        TextView subtitle = makeText("REVERSE PROXY • PHIÊN BẢN 0.5.9 HTTPS IPv6 + LOG", 11, 0xFFD5E3F2);
+        TextView subtitle = makeText("TCP RELAY • PHIÊN BẢN 0.6.0 IPv6 + LOG", 11, 0xFFD5E3F2);
         subtitle.setPadding(0, dp(5), 0, 0);
         header.addView(subtitle);
         root.addView(header);
@@ -194,7 +192,7 @@ public class MainActivity extends Activity {
         modemCard.setOrientation(LinearLayout.VERTICAL);
         modemCard.setPadding(dp(12), dp(10), dp(12), dp(10));
         modemCard.setBackgroundColor(0xFFFFFFFF);
-        TextView modemHint = makeText("Nhập IPv4 nội bộ của modem đang kết nối Wi-Fi. Cổng HTTPS mặc định: 443.", 12, muted);
+        TextView modemHint = makeText("Nhập IPv4 nội bộ của modem đang kết nối Wi-Fi. TCP Relay chuyển tiếp tới cổng 443.", 12, muted);
         modemCard.addView(modemHint);
         modemIpInput = new android.widget.EditText(this);
         modemIpInput.setSingleLine(true);
@@ -206,7 +204,7 @@ public class MainActivity extends Activity {
         LinearLayout.LayoutParams ipLp = new LinearLayout.LayoutParams(-1, dp(50));
         ipLp.topMargin = dp(8);
         modemCard.addView(modemIpInput, ipLp);
-        TextView modemPort = makeText("Giao thức: HTTPS     Cổng: 443", 12, blue);
+        TextView modemPort = makeText("Đích TCP: cổng 443 (TLS pass-through)", 12, blue);
         modemPort.setPadding(0, dp(7), 0, 0);
         modemCard.addView(modemPort);
         Button saveModemIpButton = new Button(this);
@@ -232,13 +230,14 @@ public class MainActivity extends Activity {
         details.setBackgroundColor(pale);
         root.addView(details);
 
-        TextView testHeading = makeText("ĐỊA CHỈ TRUY CẬP MODEM TỪ ANDROID B", 12, ink);
+        TextView testHeading = makeText("LINK TCP RELAY TỪ ANDROID B", 12, ink);
         testHeading.setTypeface(null, android.graphics.Typeface.BOLD);
         testHeading.setPadding(dp(2), dp(14), 0, dp(7));
         root.addView(testHeading);
         TextView instructions = makeText(
-                "Android B mở link Gateway để xem trực tiếp giao diện modem. " +
-                "Gateway chuyển tiếp yêu cầu từ IPv6 Cellular sang modem IPv4 qua Wi-Fi.", 12, muted);
+                "Android B kết nối TCP tới IPv6 4G của Android A. " +
+                "Android A chuyển tiếp nguyên luồng TLS tới modem qua Wi-Fi (không giải mã HTTP). " +
+                "Lưu ý: Relay không có token Gateway; chứng chỉ modem sẽ được chuyển tới Android B.", 12, muted);
         instructions.setTextIsSelectable(true);
         instructions.setPadding(dp(12), dp(12), dp(12), dp(12));
         instructions.setBackgroundColor(0xFFFFFFFF);
@@ -255,12 +254,6 @@ public class MainActivity extends Activity {
         copyModemButton.setTextSize(12);
         copyModemButton.setOnClickListener(v -> copyGatewayLink(true));
         root.addView(copyModemButton);
-
-        Button copyButton = new Button(this);
-        copyButton.setText("SAO CHÉP TOKEN RIÊNG");
-        copyButton.setTextSize(12);
-        copyButton.setOnClickListener(v -> copyAccessToken());
-        root.addView(copyButton);
 
         Button shareLogButton = new Button(this);
         shareLogButton.setText("CHIA SẺ FILE LOG LỖI");
@@ -305,8 +298,7 @@ public class MainActivity extends Activity {
         refreshLogView();
 
         TextView warning = makeText(
-                "Gateway nhận kết nối HTTPS qua IPv6 bằng chứng chỉ tự ký. Android B có thể hiển thị cảnh báo chứng chỉ. " +
-                "Đường truyền từ Android A tới modem tiếp tục dùng HTTPS qua Wi-Fi.", 11, 0xFF9A5B00);
+                "TCP RELAY: Không xác thực token và không chỉnh sửa HTTP. Android B sẽ nhìn thấy chứng chỉ TLS của modem, không phải chứng chỉ Gateway. Nếu chứng chỉ modem không hợp lệ với IPv6 công khai, Chrome có thể chặn hoặc cảnh báo. Chỉ dùng trong môi trường tin cậy.", 12, 0xFF8A4B08);
         warning.setPadding(dp(12), dp(10), dp(12), dp(10));
         warning.setBackgroundColor(0xFFFFF4DF);
         LinearLayout.LayoutParams warningLp = new LinearLayout.LayoutParams(-1, -2);
@@ -467,47 +459,94 @@ public class MainActivity extends Activity {
         final Inet6Address bindAddress = cellularIpv6;
         executor.execute(() -> {
             try {
-                log("SERVER", "Đang bind listener vào " + bindAddress.getHostAddress() + ":" + PORT);
-                // HTTPS listener is bound only to Cellular IPv6. The modem upstream
-                // continues to use wifi.getSocketFactory() and is not rebound to Cellular.
-                SSLServerSocket ss = createGatewaySslServerSocket();
+                log("SERVER", "TCP Relay bind " + bindAddress.getHostAddress() + ":" + PORT);
+                ServerSocket ss = new ServerSocket();
                 ss.setReuseAddress(true);
                 ss.bind(new InetSocketAddress(bindAddress, PORT), 20);
                 serverSocket = ss;
                 running = true;
-                log("SERVER", "HTTPS Listener đã mở thành công cổng " + PORT);
-                postStatus("HTTPS Server đang nghe trên IPv6 Cellular cổng " + PORT);
+                log("SERVER", "TCP RELAY đang nghe trên Cellular IPv6 cổng " + PORT);
+                postStatus("TCP Relay đang nghe trên IPv6 Cellular cổng " + PORT);
                 runOnUiThread(() -> {
                     stopButton.setEnabled(true);
                     refreshDetails();
                 });
                 while (running) {
-                    SSLSocket client = (SSLSocket) ss.accept();
-                    log("HTTPS", "Client inbound: " + client.getInetAddress());
+                    Socket client = ss.accept();
+                    log("RELAY", "Client TCP inbound: " + client.getInetAddress());
                     executor.execute(() -> handleClient(client));
                 }
             } catch (Exception e) {
-                logException("SERVER_BIND_OR_ACCEPT", e);
-                postStatus("Không mở được listener IPv6: " + e.getClass().getSimpleName()
-                        + " - " + e.getMessage());
+                if (running) {
+                    logException("RELAY_BIND_OR_ACCEPT", e);
+                    postStatus("Không mở được TCP Relay: " + e.getClass().getSimpleName() + " - " + e.getMessage());
+                }
                 stopServerOnly();
                 runOnUiThread(() -> startButton.setEnabled(true));
             }
         });
     }
 
-    private SSLServerSocket createGatewaySslServerSocket() throws Exception {
-        KeyStore keyStore = KeyStore.getInstance("PKCS12");
-        try (java.io.InputStream in = getAssets().open("gateway_https.p12")) {
-            keyStore.load(in, GATEWAY_KEYSTORE_PASSWORD.toCharArray());
+    /*
+     * TLS pass-through TCP relay:
+     * - Không terminate TLS tại Android A.
+     * - Không parse HTTP, không xử lý URL/cookie/token.
+     * - Android B <-> modem TLS handshake trực tiếp qua đường ống TCP.
+     * - Socket upstream được tạo bằng Wi-Fi Network socket factory.
+     */
+    private void handleClient(Socket client) {
+        final long started = System.nanoTime();
+        Socket upstream = null;
+        try {
+            client.setKeepAlive(true);
+            client.setTcpNoDelay(true);
+            Network wifi = wifiNetwork;
+            if (wifi == null) throw new IllegalStateException("Wi-Fi modem chưa kết nối");
+            log("RELAY", "Mở upstream qua Wi-Fi tới " + modemHost + ":" + MODEM_HTTPS_PORT);
+            upstream = wifi.getSocketFactory().createSocket();
+            upstream.setKeepAlive(true);
+            upstream.setTcpNoDelay(true);
+            upstream.connect(new InetSocketAddress(modemHost, MODEM_HTTPS_PORT), 8000);
+            log("RELAY", "Đã kết nối upstream modem; bắt đầu chuyển tiếp hai chiều");
+
+            final Socket target = upstream;
+            Thread c2m = new Thread(() -> pipeBytes(client, target, "CLIENT_TO_MODEM"), "Relay-C2M");
+            Thread m2c = new Thread(() -> pipeBytes(target, client, "MODEM_TO_CLIENT"), "Relay-M2C");
+            c2m.setDaemon(true);
+            m2c.setDaemon(true);
+            c2m.start();
+            m2c.start();
+            c2m.join();
+            m2c.join();
+            long ms = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - started);
+            log("RELAY", "Phiên relay kết thúc sau " + ms + " ms");
+        } catch (Exception e) {
+            logException("RELAY_SESSION", e);
+        } finally {
+            try { client.close(); } catch (Exception ignored) {}
+            if (upstream != null) try { upstream.close(); } catch (Exception ignored) {}
         }
-        KeyManagerFactory kmf = KeyManagerFactory.getInstance(KeyManagerFactory.getDefaultAlgorithm());
-        kmf.init(keyStore, GATEWAY_KEYSTORE_PASSWORD.toCharArray());
-        SSLContext context = SSLContext.getInstance("TLS");
-        context.init(kmf.getKeyManagers(), null, new SecureRandom());
-        SSLServerSocket ss = (SSLServerSocket) context.getServerSocketFactory().createServerSocket();
-        ss.setEnabledProtocols(new String[]{"TLSv1.2"});
-        return ss;
+    }
+
+    private void pipeBytes(Socket from, Socket to, String direction) {
+        byte[] buffer = new byte[16 * 1024];
+        long total = 0;
+        try {
+            java.io.InputStream in = from.getInputStream();
+            OutputStream out = to.getOutputStream();
+            int count;
+            while ((count = in.read(buffer)) != -1) {
+                out.write(buffer, 0, count);
+                out.flush();
+                total += count;
+            }
+            try { to.shutdownOutput(); } catch (Exception ignored) {}
+            log("RELAY", direction + " kết thúc; bytes=" + total);
+        } catch (Exception e) {
+            log("RELAY", direction + " dừng: " + e.getClass().getSimpleName() + ": " + e.getMessage() + "; bytes=" + total);
+            try { from.close(); } catch (Exception ignored) {}
+            try { to.close(); } catch (Exception ignored) {}
+        }
     }
 
     // Mỗi HTTP request có mã riêng và thời gian từng công đoạn (không thay đổi luồng proxy).
@@ -969,19 +1008,18 @@ public class MainActivity extends Activity {
         if (modemTest && !applyModemIpFromInput()) return;
         Inet6Address ip = cellularIpv6;
         if (!running || ip == null) {
-            android.widget.Toast.makeText(this, "Chưa có IPv6 4G hoặc Gateway chưa chạy.", android.widget.Toast.LENGTH_LONG).show();
+            android.widget.Toast.makeText(this, "Chưa có IPv6 4G hoặc TCP Relay chưa chạy.", android.widget.Toast.LENGTH_LONG).show();
             log("COPY_LINK", "Không thể copy: listener hoặc IPv6 chưa sẵn sàng");
             return;
         }
         String host = ip.getHostAddress();
         int zone = host.indexOf('%');
         if (zone >= 0) host = host.substring(0, zone);
-        final String token = accessToken;
-        String url = "https://[" + host + "]:" + PORT + "/" + token + (modemTest ? "/modem-test" : "/");
+        String url = "https://[" + host + "]:" + PORT + "/";
         android.content.ClipboardManager cb = (android.content.ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
-        cb.setPrimaryClip(android.content.ClipData.newPlainText("Gateway URL", url));
-        log("COPY_LINK", "Đã sao chép " + (modemTest ? "modem-test" : "IPv6 test") + " URL");
-        android.widget.Toast.makeText(this, "Đã sao chép toàn bộ link", android.widget.Toast.LENGTH_SHORT).show();
+        cb.setPrimaryClip(android.content.ClipData.newPlainText("TCP Relay URL", url));
+        log("COPY_LINK", "Đã sao chép TCP Relay URL (TLS pass-through)");
+        android.widget.Toast.makeText(this, "Đã sao chép link TCP Relay", android.widget.Toast.LENGTH_SHORT).show();
     }
 
     private void refreshDetails() {
@@ -992,8 +1030,8 @@ public class MainActivity extends Activity {
             b.append("IPv6 Cellular: ").append(cellularIpv6 == null ? "Chưa tìm thấy IPv6 global" : cellularIpv6.getHostAddress()).append("\n");
             b.append("Wi-Fi: ").append(wifiNetwork == null ? "Chưa phát hiện" : "Đã phát hiện").append("\n");
             b.append("Modem đích: https://").append(modemHost).append("\n");
-            b.append("HTTPS Listener: ").append(running ? "Đang chạy" : "Chưa chạy").append(" :").append(PORT).append("\n");
-            b.append("Token: ").append(accessToken);
+            b.append("TCP Relay: ").append(running ? "Đang chạy" : "Chưa chạy").append(" :").append(PORT).append("\n");
+            b.append("TLS: Chuyển tiếp nguyên trạng tới modem:443");
             details.setText(b.toString());
         });
     }
