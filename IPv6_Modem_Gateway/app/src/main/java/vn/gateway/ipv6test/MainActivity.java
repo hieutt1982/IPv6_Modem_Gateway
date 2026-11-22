@@ -14,6 +14,7 @@ import android.net.NetworkRequest;
 import android.net.LinkProperties;
 import android.net.LinkAddress;
 import android.view.Gravity;
+import android.view.View;
 import android.widget.Button;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
@@ -74,6 +75,7 @@ public class MainActivity extends Activity {
     private TextView status;
     private TextView details;
     private TextView logView;
+    private TextView accessLinkView;
     private ScrollView logScroll;
     private File logFile;
     private final Object logLock = new Object();
@@ -124,186 +126,216 @@ public class MainActivity extends Activity {
     }
 
     private void buildUi() {
-        final int ink = UI_INK;
+        final int ink = 0xFF171717;
         final int muted = 0xFF555555;
-        final int blue = 0xFF444444;
-        final int pale = 0xFFF2F2F2;
-        final int green = 0xFF16804A;
+        final int line = 0xFF777777;
+        final int panel = 0xFFEAEAEA;
+        final int green = 0xFF187A32;
 
-        ScrollView scroll = new ScrollView(this);
-        scroll.setFillViewport(true);
-        scroll.setBackgroundColor(0xFFEFEFEF);
+        ScrollView page = new ScrollView(this);
+        page.setFillViewport(true);
+        page.setBackgroundColor(0xFFF0F0F0);
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
-        root.setPadding(dp(8), dp(6), dp(8), dp(10));
-        scroll.addView(root);
+        root.setPadding(dp(8), dp(8), dp(8), dp(12));
+        page.addView(root);
 
+        // Header: classic grayscale, compact and clearly bordered.
         LinearLayout header = new LinearLayout(this);
         header.setOrientation(LinearLayout.VERTICAL);
-        header.setPadding(dp(10), dp(8), dp(10), dp(8));
-        header.setBackgroundColor(ink);
-        TextView title = makeText("IPv6 MODEM GATEWAY", 18, 0xFFFFFFFF);
+        header.setGravity(Gravity.CENTER);
+        header.setPadding(dp(12), dp(9), dp(12), dp(9));
+        header.setBackground(makeBorderBackground(0xFFF7F7F7, ink, 1, 5));
+        TextView title = makeText("IPv6 MODEM GATEWAY", 21, ink);
         title.setTypeface(null, android.graphics.Typeface.BOLD);
+        title.setGravity(Gravity.CENTER);
         header.addView(title);
-        TextView subtitle = makeText("REVERSE PROXY • HTTP IPv6", 10, 0xFFE0E0E0);
-        subtitle.setPadding(0, dp(5), 0, 0);
+        TextView subtitle = makeText("REVERSE PROXY  •  TRUY CẬP MODEM QUA IPv6", 12, muted);
+        subtitle.setGravity(Gravity.CENTER);
         header.addView(subtitle);
         root.addView(header);
 
-        TextView statusLabel = makeText("TRẠNG THÁI", 11, muted);
-        statusLabel.setTypeface(null, android.graphics.Typeface.BOLD);
-        statusLabel.setPadding(dp(2), dp(16), 0, dp(6));
-        root.addView(statusLabel);
-        status = makeText("Chưa khởi động gateway", 15, ink);
+        // Gateway status and actions.
+        LinearLayout statusCard = panelCard(root, "TRẠNG THÁI GATEWAY", panel, ink);
+        status = makeText("●  ĐANG DỪNG", 16, green);
         status.setTypeface(null, android.graphics.Typeface.BOLD);
-        status.setPadding(dp(11), dp(10), dp(11), dp(10));
-        status.setBackgroundColor(0xFFE8EEF5);
-        root.addView(status);
-
+        status.setGravity(Gravity.CENTER_VERTICAL);
+        status.setPadding(dp(8), dp(5), dp(8), dp(5));
+        statusCard.addView(status);
         LinearLayout actions = new LinearLayout(this);
         actions.setOrientation(LinearLayout.HORIZONTAL);
-        actions.setPadding(0, dp(12), 0, dp(4));
         startButton = new Button(this);
-        startButton.setText("KHỞI ĐỘNG GATEWAY");
-        startButton.setTextSize(12);
-        startButton.setTextColor(0xFFFFFFFF);
-        startButton.setBackgroundTintList(android.content.res.ColorStateList.valueOf(blue));
+        startButton.setText("▶  KHỞI ĐỘNG GATEWAY");
+        startButton.setTextSize(13);
+        startButton.setTextColor(ink);
         startButton.setOnClickListener(v -> startNetworks());
-        actions.addView(startButton, new LinearLayout.LayoutParams(0, dp(50), 1));
+        actions.addView(startButton, new LinearLayout.LayoutParams(0, dp(48), 1));
         stopButton = new Button(this);
-        stopButton.setText("DỪNG");
-        stopButton.setTextSize(12);
+        stopButton.setText("■  DỪNG");
+        stopButton.setTextSize(13);
         stopButton.setEnabled(false);
         stopButton.setOnClickListener(v -> stopAll());
-        LinearLayout.LayoutParams stopLp = new LinearLayout.LayoutParams(dp(104), dp(50));
-        stopLp.leftMargin = dp(8);
+        LinearLayout.LayoutParams stopLp = new LinearLayout.LayoutParams(dp(112), dp(48));
+        stopLp.leftMargin = dp(7);
         actions.addView(stopButton, stopLp);
-        root.addView(actions);
+        statusCard.addView(actions);
 
-        TextView modemHeading = makeText("ĐỊA CHỈ MODEM ĐÍCH", 12, ink);
-        modemHeading.setTypeface(null, android.graphics.Typeface.BOLD);
-        modemHeading.setPadding(dp(2), dp(14), 0, dp(7));
-        root.addView(modemHeading);
-        LinearLayout modemCard = new LinearLayout(this);
-        modemCard.setOrientation(LinearLayout.VERTICAL);
-        modemCard.setPadding(dp(8), dp(6), dp(8), dp(8));
-        modemCard.setBackgroundColor(0xFFFFFFFF);
-        TextView modemHint = makeText("Cấu hình đích HTTPS của modem và cổng IPv6 để Android B truy cập Gateway. Các giá trị được đọc trực tiếp từ ô nhập khi nhấn KHỞI ĐỘNG.", 12, muted);
-        modemCard.addView(modemHint);
-        modemIpInput = createConfigInput(modemHost, "IP modem, ví dụ 192.168.1.1", android.text.InputType.TYPE_CLASS_TEXT | android.text.InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS);
-        addConfigField(modemCard, "1. IP MODEM", modemIpInput);
-        modemPortInput = createConfigInput(String.valueOf(modemPort), "Ví dụ: 443", android.text.InputType.TYPE_CLASS_NUMBER);
-        addConfigField(modemCard, "2. PORT HTTPS MODEM", modemPortInput);
+        // Four requested settings, in the exact agreed order.
+        LinearLayout configCard = panelCard(root, "CẤU HÌNH KẾT NỐI", panel, ink);
+        modemIpInput = createConfigInput(modemHost, "Ví dụ: 192.168.1.1", android.text.InputType.TYPE_CLASS_TEXT | android.text.InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS);
+        modemPortInput = createConfigInput(String.valueOf(modemPort), "443", android.text.InputType.TYPE_CLASS_NUMBER);
         cellularIpv6Input = createConfigInput("Chưa có IPv6", "IPv6 Cellular tự động hiển thị", android.text.InputType.TYPE_CLASS_TEXT);
         cellularIpv6Input.setFocusable(false);
         cellularIpv6Input.setFocusableInTouchMode(false);
         cellularIpv6Input.setClickable(false);
         cellularIpv6Input.setLongClickable(true);
         cellularIpv6Input.setTextIsSelectable(true);
-        cellularIpv6Input.setAlpha(0.85f);
-        addConfigField(modemCard, "3. IPv6 ANDROID A", cellularIpv6Input);
-        gatewayPortInput = createConfigInput(String.valueOf(gatewayPort), "Ví dụ: 8080", android.text.InputType.TYPE_CLASS_NUMBER);
-        addConfigField(modemCard, "4. PORT HTTP IPv6", gatewayPortInput);
-        Button saveModemIpButton = new Button(this);
-        saveModemIpButton.setText("LƯU CẤU HÌNH KẾT NỐI");
-        saveModemIpButton.setTextSize(12);
-        saveModemIpButton.setOnClickListener(v -> {
-            if (applyConnectionSettingsFromInputs()) {
-                android.widget.Toast.makeText(this, "Đã lưu cấu hình modem và Gateway", android.widget.Toast.LENGTH_SHORT).show();
-            }
+        cellularIpv6Input.setBackground(makeBorderBackground(0xFFEAEAEA, line, 1, 4));
+        gatewayPortInput = createConfigInput(String.valueOf(gatewayPort), "8080", android.text.InputType.TYPE_CLASS_NUMBER);
+        addConfigRow(configCard, "1. IP MODEM", modemIpInput);
+        addConfigRow(configCard, "2. PORT HTTPS MODEM", modemPortInput);
+        addConfigRow(configCard, "3. IPv6 ANDROID A", cellularIpv6Input);
+        addConfigRow(configCard, "4. PORT HTTP IPv6", gatewayPortInput);
+        Button saveButton = new Button(this);
+        saveButton.setText("▣  LƯU CẤU HÌNH");
+        saveButton.setTextSize(13);
+        saveButton.setOnClickListener(v -> {
+            if (applyConnectionSettingsFromInputs())
+                android.widget.Toast.makeText(this, "Đã lưu cấu hình kết nối", android.widget.Toast.LENGTH_SHORT).show();
         });
-        LinearLayout.LayoutParams saveIpLp = new LinearLayout.LayoutParams(-1, dp(44));
-        saveIpLp.topMargin = dp(6);
-        modemCard.addView(saveModemIpButton, saveIpLp);
-        root.addView(modemCard);
+        LinearLayout.LayoutParams saveLp = new LinearLayout.LayoutParams(-1, dp(46));
+        saveLp.topMargin = dp(8);
+        configCard.addView(saveButton, saveLp);
 
-        TextView networkHeading = makeText("THÔNG TIN KẾT NỐI", 12, ink);
-        networkHeading.setTypeface(null, android.graphics.Typeface.BOLD);
-        networkHeading.setPadding(dp(2), dp(14), 0, dp(7));
-        root.addView(networkHeading);
-        details = makeText("Đang đọc thông tin mạng...", 13, ink);
-        details.setTextIsSelectable(true);
+        // Requested full-width stacked panels: connection info ABOVE access link.
+        // This makes both sections wider and easier to read on a phone screen.
+        LinearLayout infoCard = panelCard(root, "THÔNG TIN KẾT NỐI", panel, ink);
+        details = makeText("Đang đọc thông tin mạng...", 14, ink);
         details.setPadding(dp(12), dp(12), dp(12), dp(12));
-        details.setBackgroundColor(pale);
-        root.addView(details);
+        details.setMinHeight(dp(112));
+        details.setBackground(makeBorderBackground(0xFFFFFFFF, line, 1, 4));
+        details.setTextIsSelectable(true);
+        infoCard.addView(details, new LinearLayout.LayoutParams(-1, -2));
 
-        TextView testHeading = makeText("ĐỊA CHỈ TRUY CẬP MODEM TỪ ANDROID B", 12, ink);
-        testHeading.setTypeface(null, android.graphics.Typeface.BOLD);
-        testHeading.setPadding(dp(2), dp(14), 0, dp(7));
-        root.addView(testHeading);
-        TextView instructions = makeText(
-                "Android B mở link Gateway để xem trực tiếp giao diện modem. " +
-                "Gateway chuyển tiếp yêu cầu từ IPv6 Cellular sang modem IPv4 qua Wi-Fi.", 12, muted);
-        instructions.setTextIsSelectable(true);
-        instructions.setPadding(dp(12), dp(12), dp(12), dp(12));
-        instructions.setBackgroundColor(0xFFFFFFFF);
-        root.addView(instructions);
+        LinearLayout accessCard = panelCard(root, "ĐỊA CHỈ TRUY CẬP MODEM TỪ ANDROID B", panel, ink);
+        accessLinkView = makeText("http://[IPv6 ANDROID A]:" + gatewayPort + "/", 17, ink);
+        accessLinkView.setTypeface(android.graphics.Typeface.MONOSPACE, android.graphics.Typeface.BOLD);
+        accessLinkView.setGravity(Gravity.CENTER);
+        accessLinkView.setPadding(dp(8), dp(14), dp(8), dp(14));
+        accessLinkView.setBackground(makeBorderBackground(0xFFFFFFFF, line, 1, 4));
+        accessCard.addView(accessLinkView, new LinearLayout.LayoutParams(-1, -2));
+        Button copyLinkButton = new Button(this);
+        copyLinkButton.setText("▢  SAO CHÉP LINK TRUY CẬP");
+        copyLinkButton.setTextSize(13);
+        copyLinkButton.setOnClickListener(v -> copyGatewayLink(false));
+        LinearLayout.LayoutParams copyLinkLp = new LinearLayout.LayoutParams(-1, dp(46));
+        copyLinkLp.topMargin = dp(7);
+        accessCard.addView(copyLinkButton, copyLinkLp);
+        Button testModemButton = new Button(this);
+        testModemButton.setText("↗  KIỂM TRA KẾT NỐI MODEM");
+        testModemButton.setTextSize(13);
+        testModemButton.setOnClickListener(v -> copyGatewayLink(true));
+        LinearLayout.LayoutParams testLp = new LinearLayout.LayoutParams(-1, dp(46));
+        testLp.topMargin = dp(6);
+        accessCard.addView(testModemButton, testLp);
 
-        Button copyIpv6Button = new Button(this);
-        copyIpv6Button.setText("SAO CHÉP LINK TRUY CẬP MODEM");
-        copyIpv6Button.setTextSize(12);
-        copyIpv6Button.setOnClickListener(v -> copyGatewayLink(false));
-        root.addView(copyIpv6Button);
-
-        Button copyModemButton = new Button(this);
-        copyModemButton.setText("SAO CHÉP LINK KIỂM TRA KẾT NỐI MODEM");
-        copyModemButton.setTextSize(12);
-        copyModemButton.setOnClickListener(v -> copyGatewayLink(true));
-        root.addView(copyModemButton);
-
-        Button shareLogButton = new Button(this);
-        shareLogButton.setText("CHIA SẺ FILE LOG LỖI");
-        shareLogButton.setTextSize(12);
-        shareLogButton.setOnClickListener(v -> shareLogFile());
-        root.addView(shareLogButton);
-
-        Button copyLogButton = new Button(this);
-        copyLogButton.setText("SAO CHÉP LOG 200 DÒNG GẦN NHẤT");
-        copyLogButton.setTextSize(12);
-        copyLogButton.setOnClickListener(v -> copyRecentLog());
-        root.addView(copyLogButton);
-
-        Button clearLogButton = new Button(this);
-        clearLogButton.setText("XÓA TOÀN BỘ LOG");
-        clearLogButton.setTextSize(12);
-        clearLogButton.setTextColor(0xFFFFFFFF);
-        clearLogButton.setBackgroundTintList(android.content.res.ColorStateList.valueOf(0xFFB42318));
-        clearLogButton.setOnClickListener(v -> confirmClearLogs());
-        root.addView(clearLogButton);
-
-        TextView logHeading = makeText("NHẬT KÝ HOẠT ĐỘNG", 12, ink);
-        logHeading.setTypeface(null, android.graphics.Typeface.BOLD);
-        logHeading.setPadding(dp(2), dp(14), 0, dp(7));
-        root.addView(logHeading);
+        // Large bordered activity log; retains the 200-line rolling history.
+        LinearLayout logCard = panelCard(root, "NHẬT KÝ HOẠT ĐỘNG (TỐI ĐA 200 DÒNG)", panel, ink);
         logScroll = new ScrollView(this);
         logScroll.setFillViewport(false);
         logScroll.setVerticalScrollBarEnabled(true);
         logScroll.setHorizontalScrollBarEnabled(true);
         logScroll.setScrollbarFadingEnabled(false);
-        logScroll.setScrollBarStyle(android.view.View.SCROLLBARS_INSIDE_INSET);
-        logScroll.setBackgroundColor(0xFFFFFFFF);
-        logScroll.setPadding(dp(2), dp(2), dp(2), dp(2));
-        logView = makeText("Log sẽ xuất hiện tại đây.", 10, muted);
+        logScroll.setBackground(makeBorderBackground(0xFFFFFFFF, ink, 1, 4));
+        logView = makeText("Log sẽ xuất hiện tại đây.", 12, ink);
         logView.setTypeface(android.graphics.Typeface.MONOSPACE);
         logView.setTextIsSelectable(true);
         logView.setPadding(dp(10), dp(10), dp(10), dp(10));
         logView.setBackgroundColor(0xFFFFFFFF);
-        logScroll.addView(logView, new ScrollView.LayoutParams(
-                ScrollView.LayoutParams.MATCH_PARENT, ScrollView.LayoutParams.WRAP_CONTENT));
-        root.addView(logScroll, new LinearLayout.LayoutParams(-1, dp(400)));
-        refreshLogView();
+        logScroll.addView(logView, new ScrollView.LayoutParams(-1, -2));
+        LinearLayout.LayoutParams logLp = new LinearLayout.LayoutParams(-1, dp(400));
+        logLp.topMargin = dp(4);
+        logCard.addView(logScroll, logLp);
 
-        TextView warning = makeText(
-                "Gateway nhận kết nối HTTP qua IPv6; đường truyền từ Android A tới modem dùng HTTPS. " +
-                "Đường truyền từ B đến A dùng HTTP và đã tắt Token: bất kỳ ai kết nối được IPv6/cổng Gateway đã cấu hình đều có thể truy cập modem. Chỉ bật khi thử nghiệm; không dùng lâu dài trên Internet công cộng.", 11, 0xFF9A5B00);
-        warning.setPadding(dp(12), dp(10), dp(12), dp(10));
-        warning.setBackgroundColor(0xFFFFF4DF);
+        LinearLayout logActions = new LinearLayout(this);
+        logActions.setOrientation(LinearLayout.HORIZONTAL);
+        Button copyLogButton = new Button(this);
+        copyLogButton.setText("▢  SAO CHÉP LOG 200 DÒNG");
+        copyLogButton.setTextSize(11);
+        copyLogButton.setOnClickListener(v -> copyRecentLog());
+        logActions.addView(copyLogButton, new LinearLayout.LayoutParams(0, dp(46), 1));
+        Button shareLogButton = new Button(this);
+        shareLogButton.setText("SHARE FILE LOG");
+        shareLogButton.setTextSize(11);
+        shareLogButton.setOnClickListener(v -> shareLogFile());
+        LinearLayout.LayoutParams shareLp = new LinearLayout.LayoutParams(0, dp(46), 1);
+        shareLp.leftMargin = dp(6);
+        logActions.addView(shareLogButton, shareLp);
+        Button clearLogButton = new Button(this);
+        clearLogButton.setText("XÓA LOG");
+        clearLogButton.setTextSize(11);
+        clearLogButton.setOnClickListener(v -> confirmClearLogs());
+        LinearLayout.LayoutParams clearLp = new LinearLayout.LayoutParams(0, dp(46), 0.7f);
+        clearLp.leftMargin = dp(6);
+        logActions.addView(clearLogButton, clearLp);
+        LinearLayout.LayoutParams logActionsLp = new LinearLayout.LayoutParams(-1, -2);
+        logActionsLp.topMargin = dp(8);
+        logCard.addView(logActions, logActionsLp);
+
+        TextView warning = makeText("LƯU Ý: Kết nối Android B → Android A sử dụng HTTP và không có Token. Chỉ dùng trong môi trường thử nghiệm đáng tin cậy.", 11, muted);
+        warning.setPadding(dp(10), dp(8), dp(10), dp(8));
+        warning.setBackground(makeBorderBackground(0xFFF7F7F7, line, 1, 4));
         LinearLayout.LayoutParams warningLp = new LinearLayout.LayoutParams(-1, -2);
-        warningLp.topMargin = dp(12);
+        warningLp.topMargin = dp(8);
         root.addView(warning, warningLp);
 
-        setContentView(scroll);
+        setContentView(page);
+        refreshLogView();
         refreshDetails();
+    }
+
+    private LinearLayout panelCard(LinearLayout parent, String heading, int fill, int ink) {
+        LinearLayout card = new LinearLayout(this);
+        card.setOrientation(LinearLayout.VERTICAL);
+        card.setPadding(dp(8), dp(7), dp(8), dp(8));
+        card.setBackground(makeBorderBackground(0xFFFFFFFF, 0xFF555555, 1, 5));
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-1, -2);
+        lp.topMargin = dp(8);
+        parent.addView(card, lp);
+        TextView title = makeText(heading, 14, ink);
+        title.setTypeface(null, android.graphics.Typeface.BOLD);
+        title.setPadding(dp(7), dp(5), dp(7), dp(8));
+        title.setBackground(makeBorderBackground(fill, 0xFF888888, 1, 3));
+        card.addView(title);
+        return card;
+    }
+
+    private void addConfigRow(LinearLayout parent, String label, android.widget.EditText input) {
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        TextView title = makeText(label, 12, UI_INK);
+        title.setTypeface(null, android.graphics.Typeface.BOLD);
+        row.addView(title, new LinearLayout.LayoutParams(0, dp(44), 1.05f));
+        LinearLayout.LayoutParams inputLp = new LinearLayout.LayoutParams(0, dp(42), 1.35f);
+        inputLp.leftMargin = dp(6);
+        row.addView(input, inputLp);
+        LinearLayout.LayoutParams rowLp = new LinearLayout.LayoutParams(-1, -2);
+        rowLp.topMargin = dp(4);
+        parent.addView(row, rowLp);
+        View divider = new View(this);
+        divider.setBackgroundColor(0xFFCCCCCC);
+        LinearLayout.LayoutParams dividerLp = new LinearLayout.LayoutParams(-1, dp(1));
+        dividerLp.topMargin = dp(3);
+        parent.addView(divider, dividerLp);
+    }
+
+    private android.graphics.drawable.GradientDrawable makeBorderBackground(int fillColor, int strokeColor, int strokeDp, int radiusDp) {
+        android.graphics.drawable.GradientDrawable drawable = new android.graphics.drawable.GradientDrawable();
+        drawable.setColor(fillColor);
+        drawable.setCornerRadius(dp(radiusDp));
+        drawable.setStroke(dp(strokeDp), strokeColor);
+        return drawable;
     }
 
     private android.widget.EditText createConfigInput(String value, String hint, int inputType) {
@@ -315,7 +347,7 @@ public class MainActivity extends Activity {
         input.setSelectAllOnFocus(true);
         input.setTextSize(15);
         input.setPadding(dp(9), dp(5), dp(9), dp(5));
-        input.setBackgroundColor(0xFFFFFFFF);
+        input.setBackground(makeBorderBackground(0xFFFFFFFF, 0xFF7B8794, 1, 5));
         return input;
     }
 
@@ -992,6 +1024,7 @@ public class MainActivity extends Activity {
             String ipv6Text = cellularIpv6 == null ? "Chưa tìm thấy IPv6 global" : cellularIpv6.getHostAddress();
             b.append("IPv6 Cellular: ").append(ipv6Text).append("\n");
             if (cellularIpv6Input != null) cellularIpv6Input.setText(ipv6Text);
+            if (accessLinkView != null) accessLinkView.setText("http://[" + (cellularIpv6 == null ? "IPv6 ANDROID A" : cellularIpv6.getHostAddress()) + "]:" + gatewayPort + "/");
             b.append("Wi-Fi: ").append(wifiNetwork == null ? "Chưa phát hiện" : "Đã phát hiện").append("\n");
             b.append("Modem đích: https://").append(modemHost).append("\n");
             b.append("TCP Listener: ").append(running ? "Đang chạy" : "Chưa chạy").append(" :").append(gatewayPort).append("\n");
