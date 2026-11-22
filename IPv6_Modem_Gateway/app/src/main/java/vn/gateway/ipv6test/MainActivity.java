@@ -1247,8 +1247,26 @@ public class MainActivity extends Activity {
                 }
                 lineStart = lineEnd + 1;
             }
+            // Preserve the user's position. Auto-follow only when the user was
+            // already at the bottom; never force-scroll while they are reading older logs.
+            final int previousScrollY = logScroll != null ? logScroll.getScrollY() : 0;
+            boolean wasAtBottom = false;
+            if (logScroll != null && logScroll.getChildCount() > 0) {
+                View child = logScroll.getChildAt(0);
+                int distanceToBottom = child.getBottom() - (logScroll.getScrollY() + logScroll.getHeight());
+                wasAtBottom = distanceToBottom <= dp(24);
+            }
             logView.setText(styled);
-            if (logScroll != null) logScroll.post(() -> logScroll.fullScroll(android.view.View.FOCUS_DOWN));
+            if (logScroll != null) {
+                final boolean keepFollowing = wasAtBottom;
+                logScroll.post(() -> {
+                    if (keepFollowing) {
+                        logScroll.fullScroll(View.FOCUS_DOWN);
+                    } else {
+                        logScroll.scrollTo(0, previousScrollY);
+                    }
+                });
+            }
         }, LOG_UI_REFRESH_MS);
     }
 
