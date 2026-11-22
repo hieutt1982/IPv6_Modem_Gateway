@@ -598,11 +598,13 @@ public class MainActivity extends Activity {
         if (running || cellularNetwork == null || cellularIpv6 == null) return;
         final Inet6Address bindAddress = cellularIpv6;
         executor.execute(() -> {
+            // Khai báo ngoài try để catch có thể nhận diện socket của lần bind này.
+            ServerSocket ss = null;
             try {
                 log("SERVER", "Đang bind listener vào " + bindAddress.getHostAddress() + ":" + gatewayPort);
                 // Bind listener directly to the Cellular IPv6 address.
                 // Do NOT bind the whole process to Cellular: modem requests must use Wi-Fi.
-                ServerSocket ss = new ServerSocket();
+                ss = new ServerSocket();
                 ss.setReuseAddress(true);
                 ss.bind(new InetSocketAddress(bindAddress, gatewayPort), 20);
                 serverSocket = ss;
@@ -621,8 +623,10 @@ public class MainActivity extends Activity {
             } catch (Exception e) {
                 // Socket cũ có thể ném SocketException sau khi người dùng yêu cầu restart.
                 // Chỉ dọn trạng thái nếu socket lỗi vẫn là listener hiện hành.
-                boolean isCurrentListener = (serverSocket == ss);
-                if (isCurrentListener) {
+                boolean isBindConflict = e instanceof java.net.BindException;
+                boolean isCurrentListener = (ss != null && serverSocket == ss);
+                // BindException xảy ra trước khi gán serverSocket nên vẫn phải báo lỗi.
+                if (isCurrentListener || isBindConflict) {
                     logException("SERVER_BIND_OR_ACCEPT", e);
                     String message = (e instanceof java.net.BindException)
                             ? "Cổng " + gatewayPort + " đang bị tiến trình khác sử dụng; Android không cho phép ứng dụng tự đóng cổng của ứng dụng khác."
