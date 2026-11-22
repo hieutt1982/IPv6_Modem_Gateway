@@ -2,6 +2,8 @@ package vn.gateway.ipv6test;
 
 import android.app.Activity;
 import android.os.Bundle;
+import android.os.Handler;
+import android.os.Looper;
 import android.content.Context;
 import android.content.Intent;
 import android.net.Uri;
@@ -23,6 +25,9 @@ import android.widget.TextView;
 import java.io.BufferedReader;
 import java.io.File;
 import java.io.FileOutputStream;
+import java.io.BufferedWriter;
+import java.io.OutputStreamWriter;
+import java.util.concurrent.LinkedBlockingQueue;
 import java.io.PrintWriter;
 import java.io.StringWriter;
 import java.io.InputStreamReader;
@@ -37,6 +42,7 @@ import java.security.SecureRandom;
 import java.util.Locale;
 import java.text.SimpleDateFormat;
 import java.util.Date;
+import java.util.ArrayDeque;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -79,6 +85,17 @@ public class MainActivity extends Activity {
     private ScrollView logScroll;
     private File logFile;
     private final Object logLock = new Object();
+    private static final String LOG_CLEAR_MARKER = "\u0000__CLEAR_LOG__\u0000";
+    private final LinkedBlockingQueue<String> diskLogQueue = new LinkedBlockingQueue<>(16384);
+    private volatile boolean logWriterRunning = true;
+    private Thread logWriterThread;
+    // UI chỉ giữ một cửa sổ log gần nhất; file log vẫn lưu đầy đủ không giới hạn.
+    private static final int MAX_VISIBLE_LOG_LINES = 300;
+    private static final long LOG_UI_REFRESH_MS = 500L;
+    private final Object displayLogLock = new Object();
+    private final ArrayDeque<String> displayLogLines = new ArrayDeque<>();
+    private final Handler logUiHandler = new Handler(Looper.getMainLooper());
+    private boolean logUiRefreshPending = false;
     private final AtomicLong requestSequence = new AtomicLong(0);
     private Button startButton;
     private Button stopButton;
@@ -87,6 +104,7 @@ public class MainActivity extends Activity {
     @Override public void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         initLogging();
+        startLogWriter();
         log("APP", "onCreate version=0.5.8-HTTP-SNIFF-TIMEOUT-FIX");
         final Thread.UncaughtExceptionHandler oldHandler = Thread.getDefaultUncaughtExceptionHandler();
         Thread.setDefaultUncaughtExceptionHandler((thread, throwable) -> {
@@ -1089,20 +1107,68 @@ public class MainActivity extends Activity {
         }
     }
 
+    private void startLogWriter() {
+        logWriterThread = new Thread(() -> {
+            ArrayList<String> batch = new ArrayList<>(64);
+            while (logWriterRunning || !diskLogQueue.isEmpty()) {
+                try {
+                    String item = diskLogQueue.poll(500, TimeUnit.MILLISECONDS);
+                    if (item != null && LOG_CLEAR_MARKER.equals(item)) {
+                        appendDiskBatch(batch);
+                        batch.clear();
+                        truncateDiskLog();
+                    } else if (item != null) {
+                        batch.add(item);
+                    }
+                    // Ghi theo lô, không mở/đóng file cho từng dòng log.
+                    if (batch.size() >= 32 || (item == null && !batch.isEmpty())) {
+                        appendDiskBatch(batch);
+                        batch.clear();
+                    }
+                } catch (InterruptedException ignored) {
+                    if (!logWriterRunning) break;
+                }
+            }
+            appendDiskBatch(batch);
+        }, "Gateway-LogWriter");
+        logWriterThread.setDaemon(true);
+        logWriterThread.start();
+    }
+
+    private void appendDiskBatch(ArrayList<String> batch) {
+        if (batch.isEmpty() || logFile == null) return;
+        synchronized (logLock) {
+            try (BufferedWriter writer = new BufferedWriter(new OutputStreamWriter(
+                    new FileOutputStream(logFile, true), StandardCharsets.UTF_8), 16 * 1024)) {
+                for (String line : batch) writer.write(line + "\n");
+                writer.flush();
+            } catch (Exception e) {
+                Log.e("IPv6Gateway", "Cannot append log batch", e);
+            }
+        }
+    }
+
+    private void truncateDiskLog() {
+        synchronized (logLock) {
+            try (FileOutputStream ignored = new FileOutputStream(logFile, false)) {
+                // Opening in non-append mode truncates the log after all earlier queued lines were flushed.
+            } catch (Exception e) {
+                Log.e("IPv6Gateway", "Cannot clear log file", e);
+            }
+        }
+    }
+
     private void log(String tag, String message) {
         String line = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS", Locale.US)
                 .format(new Date()) + " [" + tag + "] " + message;
         Log.i("IPv6Gateway", line);
+        synchronized (displayLogLock) {
+            displayLogLines.addLast(line);
+            while (displayLogLines.size() > MAX_VISIBLE_LOG_LINES) displayLogLines.removeFirst();
+        }
         synchronized (logLock) {
-            try {
-                if (logFile != null) {
-                    FileOutputStream fos = new FileOutputStream(logFile, true);
-                    fos.write((line + "\n").getBytes(StandardCharsets.UTF_8));
-                    fos.flush();
-                    fos.close();
-                }
-            } catch (Exception e) {
-                Log.e("IPv6Gateway", "Cannot write log", e);
+            if (logWriterRunning && !diskLogQueue.offer(line)) {
+                Log.e("IPv6Gateway", "Log queue full; one log line could not be queued");
             }
         }
         refreshLogView();
@@ -1125,21 +1191,14 @@ public class MainActivity extends Activity {
 
     private void clearLogs() {
         synchronized (logLock) {
-            try {
-                if (logFile != null) {
-                    FileOutputStream fos = new FileOutputStream(logFile, false);
-                    fos.write(new byte[0]);
-                    fos.flush();
-                    fos.close();
-                }
-            } catch (Exception e) {
-                Log.e("IPv6Gateway", "Cannot clear log", e);
-                android.widget.Toast.makeText(this,
-                        "Không xóa được log: " + e.getMessage(),
-                        android.widget.Toast.LENGTH_LONG).show();
+            diskLogQueue.clear();
+            if (!diskLogQueue.offer(LOG_CLEAR_MARKER)) {
+                android.widget.Toast.makeText(this, "Hàng đợi log đang bận, vui lòng thử lại.",
+                        android.widget.Toast.LENGTH_SHORT).show();
                 return;
             }
         }
+        synchronized (displayLogLock) { displayLogLines.clear(); }
         if (logView != null) logView.setText("Log đã được xóa. Bắt đầu ghi nhận phiên kiểm tra mới.");
         log("LOG", "========== BẮT ĐẦU PHIÊN LOG MỚI ==========");
         android.widget.Toast.makeText(this, "Đã xóa log cũ. Log mới sẽ được ghi từ bây giờ.",
@@ -1160,19 +1219,26 @@ public class MainActivity extends Activity {
 
     private void refreshLogView() {
         if (logView == null) return;
-        runOnUiThread(() -> {
-            // Hiển thị toàn bộ nhật ký đã ghi; không giới hạn số dòng.
-            // Giới hạn 200 dòng chỉ áp dụng cho thao tác sao chép log.
-            String all = readLog();
-
-            // Tô đỏ phần ngày giờ ở đầu mỗi dòng: yyyy-MM-dd HH:mm:ss.SSS
-            android.text.SpannableString styled = new android.text.SpannableString(all);
+        synchronized (displayLogLock) {
+            if (logUiRefreshPending) return;
+            logUiRefreshPending = true;
+        }
+        // Gộp nhiều log phát sinh liên tiếp thành một lần cập nhật UI mỗi 500ms.
+        logUiHandler.postDelayed(() -> {
+            StringBuilder snapshot = new StringBuilder();
+            synchronized (displayLogLock) {
+                for (String line : displayLogLines) snapshot.append(line).append('\n');
+                logUiRefreshPending = false;
+            }
+            if (logView == null) return;
+            String visible = snapshot.length() == 0 ? "Chưa có log." : snapshot.toString();
+            android.text.SpannableString styled = new android.text.SpannableString(visible);
             int lineStart = 0;
-            while (lineStart < all.length()) {
-                int lineEnd = all.indexOf('\n', lineStart);
-                if (lineEnd < 0) lineEnd = all.length();
+            while (lineStart < visible.length()) {
+                int lineEnd = visible.indexOf('\n', lineStart);
+                if (lineEnd < 0) lineEnd = visible.length();
                 int stampEnd = Math.min(lineStart + 23, lineEnd);
-                if (stampEnd - lineStart == 23 && isLogTimestamp(all, lineStart)) {
+                if (stampEnd - lineStart == 23 && isLogTimestamp(visible, lineStart)) {
                     styled.setSpan(new android.text.style.ForegroundColorSpan(0xFFD92D20),
                             lineStart, stampEnd, android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
                     styled.setSpan(new android.text.style.StyleSpan(android.graphics.Typeface.BOLD),
@@ -1181,10 +1247,8 @@ public class MainActivity extends Activity {
                 lineStart = lineEnd + 1;
             }
             logView.setText(styled);
-            if (logScroll != null) {
-                logScroll.post(() -> logScroll.fullScroll(android.view.View.FOCUS_DOWN));
-            }
-        });
+            if (logScroll != null) logScroll.post(() -> logScroll.fullScroll(android.view.View.FOCUS_DOWN));
+        }, LOG_UI_REFRESH_MS);
     }
 
     private boolean isLogTimestamp(String value, int start) {

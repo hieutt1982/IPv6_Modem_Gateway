@@ -42,3 +42,10 @@ PHIÊN BẢN 0.5.7 - LOG SCROLL + RED TIME
 
 
 BẢN CHỈNH SỬA: Đã bỏ xác thực Token/cookie Gateway; URL truy cập trực tiếp có dạng http://[IPv6]:8080/. Khung log hiển thị cao 400dp và giữ 200 dòng mới nhất; nút sao chép lấy 200 dòng mới nhất. Lưu ý: không Token + HTTP nghĩa là bất kỳ ai kết nối được tới IPv6:cổng 8080 đều có thể truy cập modem.
+
+LOG PERFORMANCE UPDATE
+- Log lines are queued and appended by a dedicated background writer thread.
+- Disk writes are batched (up to 32 lines or a 500 ms idle interval) instead of opening/flushing the file for every line.
+- The full log file remains append-only until the user selects Clear Log.
+- The on-screen rolling window remains bounded to 300 recent lines; copy action remains limited to the last 200 lines.
+- Network request handling threads no longer perform synchronous file I/O for each log line.
