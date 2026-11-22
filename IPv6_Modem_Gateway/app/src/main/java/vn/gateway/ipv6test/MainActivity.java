@@ -120,7 +120,7 @@ public class MainActivity extends Activity {
     private TextView makeText(String value, float size, int color) {
         TextView t = new TextView(this);
         t.setText(value);
-        t.setTextSize(size);
+        t.setTextSize(android.util.TypedValue.COMPLEX_UNIT_DIP, size);
         t.setTextColor(color);
         return t;
     }
@@ -146,18 +146,18 @@ public class MainActivity extends Activity {
         header.setGravity(Gravity.CENTER);
         header.setPadding(dp(12), dp(9), dp(12), dp(9));
         header.setBackground(makeBorderBackground(0xFFF7F7F7, ink, 1, 5));
-        TextView title = makeText("IPv6 MODEM GATEWAY", 21, ink);
+        TextView title = makeText("IPv6 MODEM GATEWAY", 18, ink);
         title.setTypeface(null, android.graphics.Typeface.BOLD);
         title.setGravity(Gravity.CENTER);
         header.addView(title);
-        TextView subtitle = makeText("REVERSE PROXY  •  TRUY CẬP MODEM QUA IPv6", 12, muted);
+        TextView subtitle = makeText("REVERSE PROXY  •  TRUY CẬP MODEM QUA IPv6", 10, muted);
         subtitle.setGravity(Gravity.CENTER);
         header.addView(subtitle);
         root.addView(header);
 
         // Gateway status and actions.
         LinearLayout statusCard = panelCard(root, "TRẠNG THÁI GATEWAY", panel, ink);
-        status = makeText("●  ĐANG DỪNG", 16, green);
+        status = makeText("●  ĐANG DỪNG", 14, green);
         status.setTypeface(null, android.graphics.Typeface.BOLD);
         status.setGravity(Gravity.CENTER_VERTICAL);
         status.setPadding(dp(8), dp(5), dp(8), dp(5));
@@ -166,13 +166,13 @@ public class MainActivity extends Activity {
         actions.setOrientation(LinearLayout.HORIZONTAL);
         startButton = new Button(this);
         startButton.setText("▶  KHỞI ĐỘNG GATEWAY");
-        startButton.setTextSize(13);
+        startButton.setTextSize(android.util.TypedValue.COMPLEX_UNIT_DIP, 12);
         startButton.setTextColor(ink);
         startButton.setOnClickListener(v -> startNetworks());
         actions.addView(startButton, new LinearLayout.LayoutParams(0, dp(48), 1));
         stopButton = new Button(this);
         stopButton.setText("■  DỪNG");
-        stopButton.setTextSize(13);
+        stopButton.setTextSize(android.util.TypedValue.COMPLEX_UNIT_DIP, 12);
         stopButton.setEnabled(false);
         stopButton.setOnClickListener(v -> stopAll());
         LinearLayout.LayoutParams stopLp = new LinearLayout.LayoutParams(dp(112), dp(48));
@@ -198,7 +198,7 @@ public class MainActivity extends Activity {
         addConfigRow(configCard, "4. PORT HTTP IPv6", gatewayPortInput);
         Button saveButton = new Button(this);
         saveButton.setText("▣  LƯU CẤU HÌNH");
-        saveButton.setTextSize(13);
+        saveButton.setTextSize(android.util.TypedValue.COMPLEX_UNIT_DIP, 12);
         saveButton.setOnClickListener(v -> {
             if (applyConnectionSettingsFromInputs())
                 android.widget.Toast.makeText(this, "Đã lưu cấu hình kết nối", android.widget.Toast.LENGTH_SHORT).show();
@@ -210,7 +210,7 @@ public class MainActivity extends Activity {
         // Requested full-width stacked panels: connection info ABOVE access link.
         // This makes both sections wider and easier to read on a phone screen.
         LinearLayout infoCard = panelCard(root, "THÔNG TIN KẾT NỐI", panel, ink);
-        details = makeText("Đang đọc thông tin mạng...", 14, ink);
+        details = makeText("Đang đọc thông tin mạng...", 12, ink);
         details.setPadding(dp(12), dp(12), dp(12), dp(12));
         details.setMinHeight(dp(112));
         details.setBackground(makeBorderBackground(0xFFFFFFFF, line, 1, 4));
@@ -218,7 +218,7 @@ public class MainActivity extends Activity {
         infoCard.addView(details, new LinearLayout.LayoutParams(-1, -2));
 
         LinearLayout accessCard = panelCard(root, "ĐỊA CHỈ TRUY CẬP MODEM TỪ ANDROID B", panel, ink);
-        accessLinkView = makeText("http://[IPv6 ANDROID A]:" + gatewayPort + "/", 17, ink);
+        accessLinkView = makeText("http://[IPv6 ANDROID A]:" + gatewayPort + "/", 14, ink);
         accessLinkView.setTypeface(android.graphics.Typeface.MONOSPACE, android.graphics.Typeface.BOLD);
         accessLinkView.setGravity(Gravity.CENTER);
         accessLinkView.setPadding(dp(8), dp(14), dp(8), dp(14));
@@ -226,28 +226,28 @@ public class MainActivity extends Activity {
         accessCard.addView(accessLinkView, new LinearLayout.LayoutParams(-1, -2));
         Button copyLinkButton = new Button(this);
         copyLinkButton.setText("▢  SAO CHÉP LINK TRUY CẬP");
-        copyLinkButton.setTextSize(13);
+        copyLinkButton.setTextSize(android.util.TypedValue.COMPLEX_UNIT_DIP, 12);
         copyLinkButton.setOnClickListener(v -> copyGatewayLink(false));
         LinearLayout.LayoutParams copyLinkLp = new LinearLayout.LayoutParams(-1, dp(46));
         copyLinkLp.topMargin = dp(7);
         accessCard.addView(copyLinkButton, copyLinkLp);
         Button testModemButton = new Button(this);
         testModemButton.setText("↗  KIỂM TRA KẾT NỐI MODEM");
-        testModemButton.setTextSize(13);
+        testModemButton.setTextSize(android.util.TypedValue.COMPLEX_UNIT_DIP, 12);
         testModemButton.setOnClickListener(v -> copyGatewayLink(true));
         LinearLayout.LayoutParams testLp = new LinearLayout.LayoutParams(-1, dp(46));
         testLp.topMargin = dp(6);
         accessCard.addView(testModemButton, testLp);
 
         // Large bordered activity log; retains the 200-line rolling history.
-        LinearLayout logCard = panelCard(root, "NHẬT KÝ HOẠT ĐỘNG (TỐI ĐA 200 DÒNG)", panel, ink);
+        LinearLayout logCard = panelCard(root, "NHẬT KÝ HOẠT ĐỘNG", panel, ink);
         logScroll = new ScrollView(this);
         logScroll.setFillViewport(false);
         logScroll.setVerticalScrollBarEnabled(true);
         logScroll.setHorizontalScrollBarEnabled(true);
         logScroll.setScrollbarFadingEnabled(false);
         logScroll.setBackground(makeBorderBackground(0xFFFFFFFF, ink, 1, 4));
-        logView = makeText("Log sẽ xuất hiện tại đây.", 12, ink);
+        logView = makeText("Log sẽ xuất hiện tại đây.", 10, ink);
         logView.setTypeface(android.graphics.Typeface.MONOSPACE);
         logView.setTextIsSelectable(true);
         logView.setPadding(dp(10), dp(10), dp(10), dp(10));
@@ -260,20 +260,20 @@ public class MainActivity extends Activity {
         LinearLayout logActions = new LinearLayout(this);
         logActions.setOrientation(LinearLayout.HORIZONTAL);
         Button copyLogButton = new Button(this);
-        copyLogButton.setText("▢  SAO CHÉP LOG 200 DÒNG");
-        copyLogButton.setTextSize(11);
+        copyLogButton.setText("▢  SAO CHÉP 200 DÒNG GẦN NHẤT");
+        copyLogButton.setTextSize(android.util.TypedValue.COMPLEX_UNIT_DIP, 10);
         copyLogButton.setOnClickListener(v -> copyRecentLog());
         logActions.addView(copyLogButton, new LinearLayout.LayoutParams(0, dp(46), 1));
         Button shareLogButton = new Button(this);
         shareLogButton.setText("SHARE FILE LOG");
-        shareLogButton.setTextSize(11);
+        shareLogButton.setTextSize(android.util.TypedValue.COMPLEX_UNIT_DIP, 10);
         shareLogButton.setOnClickListener(v -> shareLogFile());
         LinearLayout.LayoutParams shareLp = new LinearLayout.LayoutParams(0, dp(46), 1);
         shareLp.leftMargin = dp(6);
         logActions.addView(shareLogButton, shareLp);
         Button clearLogButton = new Button(this);
         clearLogButton.setText("XÓA LOG");
-        clearLogButton.setTextSize(11);
+        clearLogButton.setTextSize(android.util.TypedValue.COMPLEX_UNIT_DIP, 10);
         clearLogButton.setOnClickListener(v -> confirmClearLogs());
         LinearLayout.LayoutParams clearLp = new LinearLayout.LayoutParams(0, dp(46), 0.7f);
         clearLp.leftMargin = dp(6);
@@ -345,7 +345,7 @@ public class MainActivity extends Activity {
         input.setHint(hint);
         input.setText(value);
         input.setSelectAllOnFocus(true);
-        input.setTextSize(15);
+        input.setTextSize(android.util.TypedValue.COMPLEX_UNIT_DIP, 13);
         input.setPadding(dp(9), dp(5), dp(9), dp(5));
         input.setBackground(makeBorderBackground(0xFFFFFFFF, 0xFF7B8794, 1, 5));
         return input;
@@ -596,7 +596,7 @@ public class MainActivity extends Activity {
             for (int i = start; i < lines.length; i++) out.append(lines[i]).append('\n');
             android.content.ClipboardManager cb = (android.content.ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
             cb.setPrimaryClip(android.content.ClipData.newPlainText("Gateway trace gần nhất", out.toString()));
-            android.widget.Toast.makeText(this, "Đã sao chép 200 dòng gần nhất. Gửi nguyên đoạn này cho ChatGPT.", android.widget.Toast.LENGTH_LONG).show();
+            android.widget.Toast.makeText(this, "Đã sao chép tối đa 200 dòng log gần nhất.", android.widget.Toast.LENGTH_LONG).show();
         } catch (Exception e) {
             android.widget.Toast.makeText(this, "Không sao chép được log: " + e.getMessage(), android.widget.Toast.LENGTH_LONG).show();
         }
@@ -1161,15 +1161,9 @@ public class MainActivity extends Activity {
     private void refreshLogView() {
         if (logView == null) return;
         runOnUiThread(() -> {
+            // Hiển thị toàn bộ nhật ký đã ghi; không giới hạn số dòng.
+            // Giới hạn 200 dòng chỉ áp dụng cho thao tác sao chép log.
             String all = readLog();
-            String[] logLines = all.split("\n");
-            if (logLines.length > 200) {
-                StringBuilder lastLines = new StringBuilder();
-                for (int i = logLines.length - 200; i < logLines.length; i++) {
-                    lastLines.append(logLines[i]).append('\n');
-                }
-                all = lastLines.toString();
-            }
 
             // Tô đỏ phần ngày giờ ở đầu mỗi dòng: yyyy-MM-dd HH:mm:ss.SSS
             android.text.SpannableString styled = new android.text.SpannableString(all);
