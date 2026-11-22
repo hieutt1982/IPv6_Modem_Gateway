@@ -484,7 +484,20 @@ public class MainActivity extends Activity {
             return;
         }
         if (cellularCallback != null || wifiCallback != null) {
-            log("START", "Callback đã đăng ký, bỏ qua lần nhấn lặp");
+            // Đã có phiên Gateway: đóng listener cũ của chính ứng dụng rồi bind lại
+            // đúng cổng đang nhập. Không thể đóng socket thuộc ứng dụng khác trên Android.
+            if (serverSocket != null && !serverSocket.isClosed()) {
+                log("PORT", "Cổng HTTP IPv6 :" + gatewayPort + " đang được Gateway giữ; đóng listener cũ để mở lại.");
+                postStatus("Đang đóng listener cũ và mở lại cổng " + gatewayPort + "...");
+                stopServerOnly();
+                maybeStartServer();
+            } else if (cellularNetwork != null && cellularIpv6 != null) {
+                log("PORT", "Listener chưa mở; thử bind cổng HTTP IPv6 :" + gatewayPort + " ngay.");
+                maybeStartServer();
+            } else {
+                log("PORT", "Chưa có IPv6 Cellular để mở cổng :" + gatewayPort + "; tiếp tục chờ mạng.");
+                postStatus("Đang chờ IPv6 Cellular để mở cổng " + gatewayPort + "...");
+            }
             return;
         }
         startButton.setEnabled(false);
@@ -606,11 +619,20 @@ public class MainActivity extends Activity {
                     executor.execute(() -> handleClient(client));
                 }
             } catch (Exception e) {
-                logException("SERVER_BIND_OR_ACCEPT", e);
-                postStatus("Không mở được listener IPv6: " + e.getClass().getSimpleName()
-                        + " - " + e.getMessage());
-                stopServerOnly();
-                runOnUiThread(() -> startButton.setEnabled(true));
+                // Socket cũ có thể ném SocketException sau khi người dùng yêu cầu restart.
+                // Chỉ dọn trạng thái nếu socket lỗi vẫn là listener hiện hành.
+                boolean isCurrentListener = (serverSocket == ss);
+                if (isCurrentListener) {
+                    logException("SERVER_BIND_OR_ACCEPT", e);
+                    String message = (e instanceof java.net.BindException)
+                            ? "Cổng " + gatewayPort + " đang bị tiến trình khác sử dụng; Android không cho phép ứng dụng tự đóng cổng của ứng dụng khác."
+                            : "Listener IPv6 gặp lỗi: " + e.getClass().getSimpleName() + " - " + e.getMessage();
+                    postStatus(message);
+                    stopServerOnly();
+                    runOnUiThread(() -> startButton.setEnabled(true));
+                } else {
+                    log("SERVER", "Listener cũ đã đóng trong lúc khởi động lại; bỏ qua lỗi socket cũ: " + e.getMessage());
+                }
             }
         });
     }
