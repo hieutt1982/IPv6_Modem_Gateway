@@ -69,6 +69,12 @@ public class GatewayService extends Service {
                 .build();
     }
 
+    @Override public void onTaskRemoved(Intent rootIntent) {
+        // Người dùng vuốt ứng dụng khỏi màn hình đa nhiệm: yêu cầu dừng foreground service.
+        stopSelf();
+        super.onTaskRemoved(rootIntent);
+    }
+
     @Override public void onDestroy() {
         if (wifiLock != null && wifiLock.isHeld()) wifiLock.release();
         if (wakeLock != null && wakeLock.isHeld()) wakeLock.release();

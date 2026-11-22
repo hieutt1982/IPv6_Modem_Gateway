@@ -103,6 +103,8 @@ public class MainActivity extends Activity {
     private Button startButton;
     private Button stopButton;
     private volatile boolean running = false;
+    private volatile boolean serverStarting = false;
+    private volatile long serverGeneration = 0L;
 
     @Override public void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -594,48 +596,70 @@ public class MainActivity extends Activity {
     }
 
     private synchronized void maybeStartServer() {
-        log("SERVER", "maybeStartServer running=" + running + ", cellular=" + (cellularNetwork != null) + ", ipv6=" + (cellularIpv6 != null));
-        if (running || cellularNetwork == null || cellularIpv6 == null) return;
+        log("SERVER", "maybeStartServer running=" + running + ", starting=" + serverStarting +
+                ", cellular=" + (cellularNetwork != null) + ", ipv6=" + (cellularIpv6 != null));
+        if (running || serverStarting || cellularNetwork == null || cellularIpv6 == null) return;
+
         final Inet6Address bindAddress = cellularIpv6;
+        final int bindPort = gatewayPort;
+        final long generation = ++serverGeneration;
+        serverStarting = true;
         executor.execute(() -> {
-            // Khai báo ngoài try để catch có thể nhận diện socket của lần bind này.
             ServerSocket ss = null;
             try {
-                log("SERVER", "Đang bind listener vào " + bindAddress.getHostAddress() + ":" + gatewayPort);
-                // Bind listener directly to the Cellular IPv6 address.
-                // Do NOT bind the whole process to Cellular: modem requests must use Wi-Fi.
+                log("PORT", "Kiểm tra và chuẩn bị mở cổng HTTP IPv6 :" + bindPort);
                 ss = new ServerSocket();
                 ss.setReuseAddress(true);
-                ss.bind(new InetSocketAddress(bindAddress, gatewayPort), 20);
-                serverSocket = ss;
-                running = true;
-                log("SERVER", "Listener đã mở thành công cổng " + gatewayPort);
-                postStatus("TCP Server đang nghe trên IPv6 Cellular cổng " + gatewayPort);
+                ss.bind(new InetSocketAddress(bindAddress, bindPort), 20);
+
+                synchronized (MainActivity.this) {
+                    // Nếu người dùng đã dừng/khởi động lại trong lúc bind, không giữ socket cũ.
+                    if (generation != serverGeneration) {
+                        try { ss.close(); } catch (Exception ignored) {}
+                        log("PORT", "Listener thuộc lần khởi động cũ; đã đóng socket vừa tạo.");
+                        return;
+                    }
+                    serverSocket = ss;
+                    running = true;
+                    serverStarting = false;
+                }
+
+                log("SERVER", "Listener đã mở thành công cổng " + bindPort);
+                postStatus("TCP Server đang nghe trên IPv6 Cellular cổng " + bindPort);
                 runOnUiThread(() -> {
                     stopButton.setEnabled(true);
                     refreshDetails();
                 });
-                while (running) {
+                while (running && generation == serverGeneration) {
                     Socket client = ss.accept();
                     log("HTTP", "Client inbound: " + client.getInetAddress());
                     executor.execute(() -> handleClient(client));
                 }
             } catch (Exception e) {
-                // Socket cũ có thể ném SocketException sau khi người dùng yêu cầu restart.
-                // Chỉ dọn trạng thái nếu socket lỗi vẫn là listener hiện hành.
-                boolean isBindConflict = e instanceof java.net.BindException;
-                boolean isCurrentListener = (ss != null && serverSocket == ss);
-                // BindException xảy ra trước khi gán serverSocket nên vẫn phải báo lỗi.
-                if (isCurrentListener || isBindConflict) {
+                boolean current;
+                synchronized (MainActivity.this) {
+                    current = generation == serverGeneration;
+                    if (current) {
+                        serverStarting = false;
+                        if (serverSocket == ss) {
+                            serverSocket = null;
+                            running = false;
+                        }
+                    }
+                }
+                if (current) {
                     logException("SERVER_BIND_OR_ACCEPT", e);
                     String message = (e instanceof java.net.BindException)
-                            ? "Cổng " + gatewayPort + " đang bị tiến trình khác sử dụng; Android không cho phép ứng dụng tự đóng cổng của ứng dụng khác."
+                            ? "Cổng " + bindPort + " vẫn đang được sử dụng. Gateway đã thử mở lại nhưng không thể chiếm cổng."
                             : "Listener IPv6 gặp lỗi: " + e.getClass().getSimpleName() + " - " + e.getMessage();
                     postStatus(message);
-                    stopServerOnly();
-                    runOnUiThread(() -> startButton.setEnabled(true));
+                    if (ss != null) try { ss.close(); } catch (Exception ignored) {}
+                    runOnUiThread(() -> {
+                        startButton.setEnabled(true);
+                        stopButton.setEnabled(false);
+                    });
                 } else {
-                    log("SERVER", "Listener cũ đã đóng trong lúc khởi động lại; bỏ qua lỗi socket cũ: " + e.getMessage());
+                    log("SERVER", "Socket của lần chạy cũ đã được đóng; bỏ qua lỗi: " + e.getMessage());
                 }
             }
         });
@@ -1113,10 +1137,19 @@ public class MainActivity extends Activity {
         });
     }
 
-    private void stopServerOnly() {
+    private synchronized void stopServerOnly() {
+        // Vô hiệu hóa cả tác vụ bind đang chạy để nó không thể mở lại socket sau khi dừng.
+        serverGeneration++;
         running = false;
-        try { if (serverSocket != null) serverSocket.close(); } catch (Exception ignored) {}
+        serverStarting = false;
+        ServerSocket oldSocket = serverSocket;
         serverSocket = null;
+        if (oldSocket != null) {
+            try { oldSocket.close(); } catch (Exception e) {
+                log("PORT", "Lỗi khi đóng listener cũ: " + e.getMessage());
+            }
+            log("PORT", "Đã đóng listener Gateway trên cổng " + gatewayPort);
+        }
         runOnUiThread(() -> stopButton.setEnabled(false));
     }
 
@@ -1141,8 +1174,11 @@ public class MainActivity extends Activity {
     }
 
     @Override protected void onDestroy() {
-        // Gateway được giữ bởi Foreground Service. Không dừng listener khi Activity
-        // bị đóng hoặc màn hình bị xoay/tái tạo.
+        // Khi Activity thực sự bị hủy, luôn đóng listener và giải phóng callback/service.
+        // Android có thể hủy tiến trình mà không gọi onDestroy; khi đó hệ điều hành
+        // sẽ tự giải phóng socket cùng tiến trình.
+        log("LIFECYCLE", "MainActivity onDestroy: đóng Gateway và giải phóng tài nguyên.");
+        stopAll();
         super.onDestroy();
     }
 
