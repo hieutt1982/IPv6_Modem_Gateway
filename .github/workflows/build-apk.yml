@@ -36,7 +36,7 @@ jobs:
           sdkmanager "platforms;android-35" "build-tools;35.0.0"
 
       - name: Build debug APK
-        run: gradle -p IPv6-Modem-Gateway --no-daemon assembleDebug
+        run: gradle -p IPv6_Modem_Gateway --no-daemon assembleDebug
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
