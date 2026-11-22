@@ -17,6 +17,7 @@ import android.net.LinkProperties;
 import android.net.LinkAddress;
 import android.view.Gravity;
 import android.view.View;
+import android.view.ViewGroup;
 import android.widget.Button;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
@@ -84,6 +85,7 @@ public class MainActivity extends Activity {
     private TextView logView;
     private TextView accessLinkView;
     private ScrollView logScroll;
+    private ScrollView pageScroll;
     private File logFile;
     private final Object logLock = new Object();
     private static final String LOG_CLEAR_MARKER = "\u0000__CLEAR_LOG__\u0000";
@@ -152,7 +154,10 @@ public class MainActivity extends Activity {
         final int green = 0xFF187A32;
 
         ScrollView page = new ScrollView(this);
+        pageScroll = page;
         page.setFillViewport(true);
+        page.setDescendantFocusability(ViewGroup.FOCUS_BEFORE_DESCENDANTS);
+        page.setFocusableInTouchMode(true);
         page.setBackgroundColor(0xFFF0F0F0);
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
@@ -265,10 +270,28 @@ public class MainActivity extends Activity {
         logScroll.setVerticalScrollBarEnabled(true);
         logScroll.setHorizontalScrollBarEnabled(true);
         logScroll.setScrollbarFadingEnabled(false);
+        // Keep gestures inside the log panel from being stolen by the outer page ScrollView.
+        logScroll.setNestedScrollingEnabled(false);
+        logScroll.setOnTouchListener((v, event) -> {
+            if (pageScroll != null) {
+                int action = event.getActionMasked();
+                if (action == android.view.MotionEvent.ACTION_DOWN ||
+                        action == android.view.MotionEvent.ACTION_MOVE) {
+                    pageScroll.requestDisallowInterceptTouchEvent(true);
+                } else if (action == android.view.MotionEvent.ACTION_UP ||
+                        action == android.view.MotionEvent.ACTION_CANCEL) {
+                    pageScroll.requestDisallowInterceptTouchEvent(false);
+                }
+            }
+            return false;
+        });
         logScroll.setBackground(makeBorderBackground(0xFFFFFFFF, ink, 1, 4));
         logView = makeText("Log sẽ xuất hiện tại đây.", 10, ink);
         logView.setTypeface(android.graphics.Typeface.MONOSPACE);
-        logView.setTextIsSelectable(true);
+        // Log is read-only; copy is handled by the dedicated button. Avoid focus jumps.
+        logView.setFocusable(false);
+        logView.setFocusableInTouchMode(false);
+        logView.setTextIsSelectable(false);
         logView.setPadding(dp(10), dp(10), dp(10), dp(10));
         logView.setBackgroundColor(0xFFFFFFFF);
         logScroll.addView(logView, new ScrollView.LayoutParams(-1, -2));
@@ -1249,7 +1272,8 @@ public class MainActivity extends Activity {
             }
             // Preserve the user's position. Auto-follow only when the user was
             // already at the bottom; never force-scroll while they are reading older logs.
-            final int previousScrollY = logScroll != null ? logScroll.getScrollY() : 0;
+            final int previousLogScrollY = logScroll != null ? logScroll.getScrollY() : 0;
+            final int previousPageScrollY = pageScroll != null ? pageScroll.getScrollY() : 0;
             boolean wasAtBottom = false;
             if (logScroll != null && logScroll.getChildCount() > 0) {
                 View child = logScroll.getChildAt(0);
@@ -1261,9 +1285,14 @@ public class MainActivity extends Activity {
                 final boolean keepFollowing = wasAtBottom;
                 logScroll.post(() -> {
                     if (keepFollowing) {
-                        logScroll.fullScroll(View.FOCUS_DOWN);
+                        int maxY = Math.max(0, logView.getHeight() - logScroll.getHeight());
+                        logScroll.scrollTo(0, maxY);
                     } else {
-                        logScroll.scrollTo(0, previousScrollY);
+                        logScroll.scrollTo(0, previousLogScrollY);
+                    }
+                    // Updating text must never move the whole screen/page.
+                    if (pageScroll != null && pageScroll.getScrollY() != previousPageScrollY) {
+                        pageScroll.scrollTo(0, previousPageScrollY);
                     }
                 });
             }
