@@ -72,11 +72,13 @@ public class MainActivity extends Activity {
     private static final String PREF_MODEM_IP = "modem_ip";
     private static final String PREF_MODEM_PORT = "modem_port";
     private static final String PREF_GATEWAY_PORT = "gateway_port";
+    private static final String PREF_PROXY_IP = "proxy_ip";
     private volatile String modemHost = "192.168.1.1";
     private android.widget.EditText modemIpInput;
     private android.widget.EditText modemPortInput;
     private android.widget.EditText cellularIpv6Input;
     private android.widget.EditText gatewayPortInput;
+    private android.widget.EditText proxyIpInput;
 
     private ConnectivityManager cm;
     private ConnectivityManager.NetworkCallback cellularCallback;
@@ -92,6 +94,7 @@ public class MainActivity extends Activity {
     private TextView details;
     private TextView logView;
     private TextView accessLinkView;
+    private TextView proxyLinkView;
     private ScrollView logScroll;
     private ScrollView pageScroll;
     private File logFile;
@@ -258,6 +261,41 @@ public class MainActivity extends Activity {
         accessLinkView.setPadding(dp(8), dp(14), dp(8), dp(14));
         accessLinkView.setBackground(makeBorderBackground(0xFFFFFFFF, line, 1, 4));
         accessCard.addView(accessLinkView, new LinearLayout.LayoutParams(-1, -2));
+        // Proxy address is configurable here; later it can be changed to a domain name.
+        TextView proxyLabel = makeText("IP PROXY", 13, ink);
+        proxyLabel.setTypeface(null, android.graphics.Typeface.BOLD);
+        LinearLayout.LayoutParams proxyLabelLp = new LinearLayout.LayoutParams(-1, -2);
+        proxyLabelLp.topMargin = dp(12);
+        accessCard.addView(proxyLabel, proxyLabelLp);
+        proxyIpInput = createConfigInput(getSharedPreferences(PREFS_NAME, MODE_PRIVATE).getString(PREF_PROXY_IP, ""), "Ví dụ: 4.254.128.3", android.text.InputType.TYPE_CLASS_TEXT | android.text.InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS);
+        accessCard.addView(proxyIpInput, new LinearLayout.LayoutParams(-1, dp(46)));
+        TextView proxyLinkLabel = makeText("LINK TRUY CẬP QUA PROXY", 13, ink);
+        proxyLinkLabel.setTypeface(null, android.graphics.Typeface.BOLD);
+        LinearLayout.LayoutParams proxyLinkLabelLp = new LinearLayout.LayoutParams(-1, -2);
+        proxyLinkLabelLp.topMargin = dp(9);
+        accessCard.addView(proxyLinkLabel, proxyLinkLabelLp);
+        proxyLinkView = makeText("Nhập IP Proxy để tạo link", 12, ink);
+        proxyLinkView.setTypeface(android.graphics.Typeface.MONOSPACE, android.graphics.Typeface.BOLD);
+        proxyLinkView.setGravity(Gravity.CENTER);
+        proxyLinkView.setPadding(dp(8), dp(12), dp(8), dp(12));
+        proxyLinkView.setBackground(makeBorderBackground(0xFFFFFFFF, line, 1, 4));
+        accessCard.addView(proxyLinkView, new LinearLayout.LayoutParams(-1, -2));
+        proxyIpInput.addTextChangedListener(new android.text.TextWatcher() {
+            @Override public void beforeTextChanged(CharSequence s, int start, int count, int after) { }
+            @Override public void onTextChanged(CharSequence s, int start, int before, int count) {
+                getSharedPreferences(PREFS_NAME, MODE_PRIVATE).edit().putString(PREF_PROXY_IP, s.toString().trim()).apply();
+                refreshProxyLink();
+            }
+            @Override public void afterTextChanged(android.text.Editable e) { }
+        });
+        Button copyProxyButton = new Button(this);
+        copyProxyButton.setText("▢  SAO CHÉP LINK PROXY");
+        copyProxyButton.setTextSize(android.util.TypedValue.COMPLEX_UNIT_DIP, 12);
+        copyProxyButton.setOnClickListener(v -> copyProxyLink());
+        LinearLayout.LayoutParams copyProxyLp = new LinearLayout.LayoutParams(-1, dp(46));
+        copyProxyLp.topMargin = dp(7);
+        accessCard.addView(copyProxyButton, copyProxyLp);
+
         Button copyLinkButton = new Button(this);
         copyLinkButton.setText("▢  SAO CHÉP LINK TRUY CẬP");
         copyLinkButton.setTextSize(android.util.TypedValue.COMPLEX_UNIT_DIP, 12);
@@ -840,6 +878,35 @@ public class MainActivity extends Activity {
         return context.getSocketFactory();
     }
 
+    private String buildProxyLink() {
+        String proxy = proxyIpInput == null
+                ? getSharedPreferences(PREFS_NAME, MODE_PRIVATE).getString(PREF_PROXY_IP, "").trim()
+                : proxyIpInput.getText().toString().trim();
+        if (proxy.isEmpty() || cellularIpv6 == null) return "";
+        String host = cellularIpv6.getHostAddress();
+        int zone = host.indexOf('%');
+        if (zone >= 0) host = host.substring(0, zone);
+        return "http://" + proxy + ":3000/control?ipv6=" + Uri.encode(host) + "&port=" + gatewayPort;
+    }
+
+    private void refreshProxyLink() {
+        if (proxyLinkView == null) return;
+        String link = buildProxyLink();
+        proxyLinkView.setText(link.isEmpty() ? "Nhập IP Proxy và khởi động Gateway để tạo link" : link);
+    }
+
+    private void copyProxyLink() {
+        String link = buildProxyLink();
+        if (link.isEmpty()) {
+            android.widget.Toast.makeText(this, "Nhập IP Proxy và bảo đảm Gateway đã có IPv6.", android.widget.Toast.LENGTH_LONG).show();
+            return;
+        }
+        android.content.ClipboardManager cb = (android.content.ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
+        cb.setPrimaryClip(android.content.ClipData.newPlainText("Proxy URL", link));
+        log("COPY_PROXY", "Đã sao chép link truy cập qua Proxy");
+        android.widget.Toast.makeText(this, "Đã sao chép link Proxy", android.widget.Toast.LENGTH_SHORT).show();
+    }
+
     private void copyGatewayLink(boolean modemTest) {
         if (modemTest && !applyModemIpFromInput()) return;
         Inet6Address ip = cellularIpv6;
@@ -867,6 +934,7 @@ public class MainActivity extends Activity {
             b.append("IPv6 Cellular: ").append(ipv6Text).append("\n");
             if (cellularIpv6Input != null) cellularIpv6Input.setText(ipv6Text);
             if (accessLinkView != null) accessLinkView.setText("https://[" + (cellularIpv6 == null ? "IPv6 ANDROID A" : cellularIpv6.getHostAddress()) + "]:" + gatewayPort + "/");
+            refreshProxyLink();
             b.append("Wi-Fi: ").append(wifiNetwork == null ? "Chưa phát hiện" : "Đã phát hiện").append("\n");
             b.append("Modem đích: ").append(modemHost).append(":").append(modemPort).append(" (qua Wi-Fi)\n");
             b.append("TCP Tunnel: ").append(running ? "Đang chạy" : "Chưa chạy").append(" :").append(gatewayPort).append("\n");

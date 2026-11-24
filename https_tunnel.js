@@ -3,10 +3,8 @@ const http = require("http");
 
 // ONE PUBLIC PORT: control page + unchanged raw TCP relay
 const PORT = 3000;
-const TARGET_PORT = 8090;
-
-const CONTROL_KEY = "Vnptdng@9";
-let TARGET_IPV6 = "Nhập IP IPv6 Android A";
+let TARGET_PORT = 8090;
+let TARGET_IPV6 = "2001:ee0:29c:11cd:ebc7:c6e7:20b1:ca5a";
 let connectionCount = 0;
 
 // =========================
@@ -14,132 +12,115 @@ let connectionCount = 0;
 // Control UI: http://YOUR_SERVER:3000/control
 // /set and /status are reserved for the control page.
 // All other traffic, including modem HTTP/HTTPS, is relayed as raw TCP.
-// =========================let TARGET_IPV6 = "2001:ee0:29c:11cd:ebc7:c6e7:20b1:ca5a";
+// =========================
 const control = http.createServer((req, res) => {
     res.setHeader("Access-Control-Allow-Origin", "*");
     res.setHeader("Cache-Control", "no-store");
 
-    if (req.method === "GET" && req.url === "/control") {
+    const pathname = new URL(req.url, "http://localhost").pathname;
+
+    if (req.method === "GET" && pathname === "/control") {
         res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
         res.end(`<!DOCTYPE html>
 <html lang="vi">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<meta name="theme-color" content="#075bb8">
-<title>TCP Tunnel Control</title>
+<meta name="theme-color" content="#073b9b">
+<title>VNPT - TCP TUNNEL CONTROL</title>
 <style>
-:root{font-family:Arial,Helvetica,sans-serif;color:#172033;background:#eaf3ff}
+:root{font-family:Arial,Helvetica,sans-serif;color:#102b63;background:#fff}
 *{box-sizing:border-box}
-body{margin:0;min-height:100vh;padding:22px 14px;background:radial-gradient(circle at 50% 0,#d8eaff 0,#edf5ff 48%,#e7f0fb 100%)}
-.shell{width:100%;max-width:760px;margin:24px auto;background:#fff;border-radius:24px;overflow:hidden;box-shadow:0 16px 38px rgba(18,77,143,.18);border:1px solid #d7e6f8}
-.hero{padding:25px 30px;background:linear-gradient(115deg,#064eaa,#0879d4);color:#fff;display:flex;align-items:center;gap:20px}
-.brand{width:84px;flex:0 0 84px;text-align:center;font-weight:800;font-size:22px;letter-spacing:4px;border-right:1px solid rgba(255,255,255,.3);padding-right:18px}
-.brand-mark{font-size:34px;line-height:1.1;display:block;letter-spacing:0}
-.hero-copy{min-width:0;flex:1}
-.hero h1{font-size:clamp(21px,4vw,31px);margin:0 0 7px;letter-spacing:.3px}
-.hero p{margin:0;color:#dceeff;font-size:15px;line-height:1.4}
-.router{font-size:43px;line-height:1;flex:0 0 auto}
-.content{padding:28px 30px 24px}
-.field{margin-bottom:20px}
-.label{display:flex;align-items:center;gap:10px;font-size:18px;font-weight:700;margin:0 0 9px}
-.label .ico{color:#0869c7;font-size:22px;width:26px;text-align:center}
-.input-wrap{position:relative}
-input{width:100%;height:54px;border:2px solid #b9c9df;border-radius:12px;padding:0 48px 0 15px;font-size:16px;color:#172033;background:#fbfdff;outline:none;transition:border .15s,box-shadow .15s}
-input:focus{border-color:#1683e5;box-shadow:0 0 0 3px rgba(22,131,229,.13)}
-.input-action{position:absolute;right:9px;top:8px;width:38px;height:38px;border:0;background:transparent;color:#294565;font-size:22px;cursor:pointer;border-radius:8px}
-.actions{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin:25px 0 22px}
-button.action{min-height:58px;border:0;border-radius:12px;color:white;font-size:16px;font-weight:800;letter-spacing:.2px;cursor:pointer;box-shadow:0 5px 12px rgba(0,0,0,.1);transition:transform .12s,filter .12s}
-button.action:active{transform:translateY(1px);filter:brightness(.96)}
-.save{background:linear-gradient(110deg,#1596ed,#075bbb)}
-.remote{background:linear-gradient(110deg,#19c65b,#07833b)}
-.action .ico{font-size:21px;margin-right:8px;vertical-align:-1px}
-.status-card{border:1px solid #b8ecd1;background:linear-gradient(120deg,#effdf5,#e4f7ee);border-radius:15px;padding:17px 18px;display:grid;grid-template-columns:48px 1fr;gap:10px;align-items:center}
-.check{width:40px;height:40px;border-radius:50%;background:#12b94f;color:#fff;display:grid;place-items:center;font-size:25px;font-weight:bold}
-.status-lines{min-width:0;display:grid;gap:9px;font-size:15px;line-height:1.4}
-.status-line{overflow-wrap:anywhere}
-.status-line strong{color:#15456d}
-.note{margin-top:7px;color:#52677d;font-size:12px;min-height:16px}
-.footer{margin:0 18px 18px;padding:16px 18px;border-radius:14px;background:#f0f4fb;display:flex;align-items:center;justify-content:space-between;gap:12px;color:#233b60}
-.tcp{display:flex;align-items:center;gap:12px;font-size:14px}
-.tcp-badge{padding:7px 10px;border-radius:8px;background:#258ce4;color:#fff;font-weight:800;box-shadow:inset 0 0 0 1px #75baff}
-.running{display:flex;align-items:center;gap:8px;font-weight:700;font-size:14px;white-space:nowrap}
-.dot{width:10px;height:10px;border-radius:50%;background:#12bd50;box-shadow:0 0 0 4px #d8f7e4}
-@media(max-width:560px){body{padding:10px 8px}.shell{margin:8px auto;border-radius:17px}.hero{padding:20px 17px;gap:12px}.brand{width:60px;flex-basis:60px;font-size:17px;letter-spacing:2px;padding-right:10px}.brand-mark{font-size:27px}.hero p{font-size:12px}.router{font-size:32px}.content{padding:22px 17px 18px}.label{font-size:16px}.actions{grid-template-columns:1fr;gap:10px;margin:20px 0}.status-card{padding:14px 12px;grid-template-columns:38px 1fr}.check{width:34px;height:34px;font-size:21px}.status-lines{font-size:13px}.footer{margin:0 12px 12px;padding:13px;align-items:flex-start;flex-direction:column}.running{font-size:13px}}
+body{margin:0;padding:18px;background:#fff}
+.shell{width:100%;max-width:1100px;margin:12px auto;border:2px solid #073b9b;background:#fff}
+.hero{min-height:82px;padding:18px 24px;background:#073b9b;color:#fff;display:flex;align-items:center;gap:18px}
+.brand{font-size:24px;font-weight:800;white-space:nowrap;border-right:2px solid rgba(255,255,255,.65);padding-right:18px}
+.hero h1{font-size:clamp(20px,3vw,30px);margin:0;letter-spacing:.3px}
+.content{padding:26px 24px}
+.options{display:grid;gap:18px;padding:4px 0 24px;border-bottom:2px solid #073b9b}
+.option{display:grid;grid-template-columns:38px minmax(220px,310px) minmax(0,1fr) 58px;gap:12px;align-items:center}
+.radio{width:24px;height:24px;justify-self:center;accent-color:#075bbb;cursor:pointer}
+.choice{height:66px;border:1px solid #075bbb;background:#dceeff;color:#102b63;display:flex;align-items:center;justify-content:center;gap:12px;font-size:clamp(17px,2.3vw,24px);font-weight:800;cursor:pointer;padding:8px;text-align:center}
+.choice.proxy{background:#e4f6e9;border-color:#13833d}
+.choice .symbol{font-size:30px;color:#075bbb}
+.url{height:66px;min-width:0;border:1px solid #073b9b;display:flex;align-items:center;gap:12px;padding:8px 12px;color:#003fc2;font-size:clamp(13px,1.8vw,20px);font-weight:700;overflow-wrap:anywhere}
+.url .url-icon{font-size:27px;flex:0 0 auto}
+.copy{height:58px;border:1px solid #073b9b;background:#fff;color:#073b9b;font-size:27px;cursor:pointer}
+.copy:active,.choice:active,.remote:active{background:#dceeff}
+.remote-wrap{padding:26px 0 2px;text-align:center}
+.remote{width:min(620px,90%);min-height:76px;border:0;background:#073b9b;color:#fff;font-size:clamp(21px,3vw,30px);font-weight:800;cursor:pointer;padding:14px 24px}
+.message{text-align:center;min-height:20px;margin-top:12px;font-size:13px;color:#24518b}
+@media(max-width:700px){body{padding:8px}.shell{margin:4px auto}.hero{padding:15px;gap:12px}.brand{font-size:18px;padding-right:12px}.content{padding:17px 12px}.option{grid-template-columns:30px minmax(0,1fr) 46px;gap:8px}.choice{grid-column:2;grid-row:1;height:auto;min-height:54px;font-size:16px}.url{grid-column:2;grid-row:2;height:auto;min-height:54px;font-size:12px;padding:8px}.copy{grid-column:3;grid-row:1 / span 2;height:50px;font-size:22px}.radio{grid-column:1;grid-row:1 / span 2}.options{gap:14px}.remote{width:100%;min-height:64px}}
 </style>
 </head>
 <body>
 <div class="shell">
-  <header class="hero">
-    <div class="brand"><span class="brand-mark">◉</span>VNPT</div>
-    <div class="hero-copy"><h1>TCP TUNNEL CONTROL</h1><p>Kết nối IPv6 Android A → Remote Modem</p></div>
-    <div class="router" aria-hidden="true">⌁</div>
-  </header>
-  <main class="content">
-    <div class="field">
-      <label class="label" for="ipv6"><span class="ico">↗</span>IPv6 Android A</label>
-      <div class="input-wrap"><input id="ipv6" type="text" autocomplete="off" spellcheck="false" placeholder="2001:xxxx:xxxx::xxxx"><button class="input-action" type="button" title="Xóa IPv6" onclick="document.getElementById('ipv6').value=''">×</button></div>
-    </div>
-    <div class="field">
-      <label class="label" for="key"><span class="ico">▣</span>Control Key</label>
-      <div class="input-wrap"><input id="key" type="text" autocomplete="current-password" value="Vnptdng@9" "><button class="input-action" type="button" title="Hiện/ẩn mật khẩu" onclick="toggleKey()">◉</button></div>
-    </div>
-    <div class="actions">
-      <button class="action save" type="button" onclick="updateIP()"><span class="ico">⟳</span>CẬP NHẬT IPv6</button>
-      <button class="action remote" type="button" onclick="openRemote()"><span class="ico">↗</span>MỞ REMOTE MODEM</button>
-    </div>
-    <section class="status-card" aria-live="polite">
-      <div class="check">✓</div>
-      <div class="status-lines">
-        <div class="status-line"><strong>IPv6 hiện tại:</strong> <span id="currentIP">Đang tải...</span></div>
-        <div class="status-line"><strong>Target Port:</strong> 8090</div>
-        <div class="status-line"><strong>Remote modem:</strong> cùng cổng 3000</div>
-      </div>
-    </section>
-    <div class="note" id="message"></div>
-  </main>
-  <footer class="footer">
-    <div class="tcp"><span class="tcp-badge">TCP</span><span>TCP Relay (net.createServer + net.connect)</span></div>
-    <div class="running"><span class="dot"></span>Đang chạy · Cổng 3000</div>
-  </footer>
+<header class="hero"><div class="brand">◉ VNPT</div><h1>TCP TUNNEL CONTROL</h1></header>
+<main class="content">
+<section class="options" aria-label="Chọn kiểu kết nối">
+  <div class="option">
+    <input class="radio" type="radio" name="remoteMode" id="modeDirect" value="direct" checked>
+    <label class="choice" for="modeDirect"><span class="symbol">🔗</span>Link Direct</label>
+    <div class="url"><span class="url-icon">🌐</span><span id="directUrl">Đang đọc IPv6...</span></div>
+    <button class="copy" type="button" title="Sao chép Link Direct" onclick="copyUrl('directUrl')">▢</button>
+  </div>
+  <div class="option">
+    <input class="radio" type="radio" name="remoteMode" id="modeProxy" value="proxy">
+    <label class="choice proxy" for="modeProxy"><span class="symbol">▣</span>Link Proxy</label>
+    <div class="url"><span class="url-icon">▤</span><span id="proxyUrl">Đang đọc địa chỉ máy chủ...</span></div>
+    <button class="copy" type="button" title="Sao chép Link Proxy" onclick="copyUrl('proxyUrl')">▢</button>
+  </div>
+</section>
+<div class="remote-wrap"><button class="remote" type="button" onclick="openRemote()">⌁ &nbsp; REMOTE MODEM</button></div>
+<div class="message" id="message" aria-live="polite"></div>
+</main>
 </div>
 <script>
-const ipv6Input=document.getElementById("ipv6");
-const keyInput=document.getElementById("key");
-const currentIP=document.getElementById("currentIP");
+const directUrl=document.getElementById("directUrl");
+const proxyUrl=document.getElementById("proxyUrl");
 const message=document.getElementById("message");
-function toggleKey(){keyInput.type=keyInput.type==="password"?"text":"password";}
-async function loadStatus(){
+function selectedMode(){return document.querySelector('input[name="remoteMode"]:checked')?.value||"direct";}
+async function initialize(){
+  const params=new URLSearchParams(window.location.search);
+  const ipv6=(params.get("ipv6")||"").trim();
+  const portText=(params.get("port")||"8090").trim();
+  const port=Number(portText);
+  const direct=ipv6 ? "https://["+ipv6+"]:"+port+"/" : "Chưa có IPv6 trong URL";
+  const proxy="https://"+window.location.host+"/";
+  directUrl.textContent=direct;
+  proxyUrl.textContent=proxy;
+  if(!ipv6){message.textContent="Thiếu tham số ipv6 trong URL điều khiển.";return;}
+  if(!Number.isInteger(port)||port<1||port>65535){message.textContent="Port không hợp lệ.";return;}
+  message.textContent="Đang tự động cập nhật IPv6 và Port...";
   try{
-    const r=await fetch("/status",{cache:"no-store"});
-    const d=await r.json();
-    if(!r.ok)throw new Error(d.error||"Không đọc được trạng thái");
-    ipv6Input.value=d.ipv6||"";
-    currentIP.textContent=d.ipv6||"Chưa cập nhật";
-    message.textContent="Đã kết nối máy chủ điều khiển.";
-  }catch(e){currentIP.textContent="Không lấy được trạng thái";message.textContent="Lỗi: "+e.message;}
-}
-async function updateIP(){
-  const ipv6=ipv6Input.value.trim();
-  const key=keyInput.value;
-  message.textContent="Đang cập nhật IPv6...";
-  try{
-    const r=await fetch("/set",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({ipv6,key})});
+    const r=await fetch("/set",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({ipv6,port})});
     const d=await r.json();
     if(!r.ok)throw new Error(d.error||"Cập nhật thất bại");
-    currentIP.textContent=d.newIPv6||ipv6;
-    message.textContent="Cập nhật IPv6 thành công.";
-  }catch(e){message.textContent="Lỗi: "+e.message;}
+    message.textContent="Đã cập nhật IPv6 và Port. Chọn Link Direct hoặc Link Proxy rồi nhấn REMOTE MODEM.";
+  }catch(e){message.textContent="Lỗi cập nhật: "+e.message;}
 }
-function openRemote(){window.open("https://"+window.location.host+"/","_blank");}
-loadStatus();
+function openRemote(){
+  if(selectedMode()==="direct"){
+    const url=directUrl.textContent;
+    if(!url.startsWith("https://[")){message.textContent="Không có IPv6 hợp lệ để mở Link Direct.";return;}
+    window.open(url,"_blank");
+  }else{
+    window.open(proxyUrl.textContent,"_blank");
+  }
+}
+async function copyUrl(id){
+  const value=document.getElementById(id).textContent;
+  try{await navigator.clipboard.writeText(value);message.textContent="Đã sao chép đường dẫn.";}
+  catch(e){message.textContent="Không thể sao chép tự động trên trình duyệt này.";}
+}
+initialize();
 </script>
 </body>
 </html>`);
         return;
     }
 
-    if (req.method === "GET" && req.url === "/status") {
+    if (req.method === "GET" && pathname === "/status") {
         res.writeHead(200, { "Content-Type": "application/json; charset=utf-8" });
         res.end(JSON.stringify({
             status: "running",
@@ -150,7 +131,7 @@ loadStatus();
         return;
     }
 
-    if (req.method === "POST" && req.url === "/set") {
+    if (req.method === "POST" && pathname === "/set") {
         let body = "";
         req.on("data", chunk => {
             body += chunk;
@@ -159,28 +140,33 @@ loadStatus();
         req.on("end", () => {
             try {
                 const data = JSON.parse(body);
-                if (data.key !== CONTROL_KEY) {
-                    res.writeHead(401, { "Content-Type": "application/json; charset=utf-8" });
-                    res.end(JSON.stringify({ error: "UNAUTHORIZED" }));
-                    return;
-                }
                 const ipv6 = String(data.ipv6 || "").trim();
+                const port = Number(data.port || 8090);
                 if (net.isIP(ipv6) !== 6) {
                     res.writeHead(400, { "Content-Type": "application/json; charset=utf-8" });
                     res.end(JSON.stringify({ error: "INVALID_IPV6" }));
                     return;
                 }
+                if (!Number.isInteger(port) || port < 1 || port > 65535) {
+                    res.writeHead(400, { "Content-Type": "application/json; charset=utf-8" });
+                    res.end(JSON.stringify({ error: "INVALID_PORT" }));
+                    return;
+                }
                 const oldIP = TARGET_IPV6;
+                const oldPort = TARGET_PORT;
                 TARGET_IPV6 = ipv6;
+                TARGET_PORT = port;
                 console.log("[IP UPDATED]");
                 console.log("OLD:", oldIP);
                 console.log("NEW:", TARGET_IPV6);
+                console.log("PORT:", oldPort, "->", TARGET_PORT);
                 res.writeHead(200, { "Content-Type": "application/json; charset=utf-8" });
                 res.end(JSON.stringify({
                     status: "OK",
                     message: "TARGET UPDATED",
                     oldIPv6: oldIP,
                     newIPv6: TARGET_IPV6,
+                    oldPort,
                     port: TARGET_PORT
                 }));
             } catch (err) {
@@ -191,7 +177,7 @@ loadStatus();
         return;
     }
 
-    if (req.method === "GET" && req.url === "/favicon.ico") {
+    if (req.method === "GET" && pathname === "/favicon.ico") {
         res.writeHead(204);
         res.end();
         return;
