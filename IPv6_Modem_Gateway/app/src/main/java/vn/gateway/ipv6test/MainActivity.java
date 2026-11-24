@@ -254,32 +254,65 @@ public class MainActivity extends Activity {
         details.setTextIsSelectable(true);
         infoCard.addView(details, new LinearLayout.LayoutParams(-1, -2));
 
-        LinearLayout accessCard = panelCard(root, "ĐỊA CHỈ TRUY CẬP MODEM TỪ ANDROID B", panel, ink);
+        LinearLayout accessCard = panelCard(root, "LINK TRUY CẬP TRỰC TIẾP", panel, ink);
         accessLinkView = makeText("https://[IPv6 ANDROID A]:" + gatewayPort + "/", 14, ink);
         accessLinkView.setTypeface(android.graphics.Typeface.MONOSPACE, android.graphics.Typeface.BOLD);
         accessLinkView.setGravity(Gravity.CENTER);
         accessLinkView.setPadding(dp(8), dp(14), dp(8), dp(14));
         accessLinkView.setBackground(makeBorderBackground(0xFFFFFFFF, line, 1, 4));
-        accessCard.addView(accessLinkView, new LinearLayout.LayoutParams(-1, -2));
-        // Proxy address is configurable here; later it can be changed to a domain name.
+        LinearLayout directLinkRow = new LinearLayout(this);
+        directLinkRow.setOrientation(LinearLayout.HORIZONTAL);
+        directLinkRow.setGravity(Gravity.CENTER_VERTICAL);
+        directLinkRow.addView(accessLinkView, new LinearLayout.LayoutParams(0, -2, 1f));
+        TextView copyDirectIcon = makeCopyIconButton("Sao chép link truy cập trực tiếp", () -> copyGatewayLink(false));
+        LinearLayout.LayoutParams directIconLp = new LinearLayout.LayoutParams(dp(48), dp(48));
+        directIconLp.leftMargin = dp(7);
+        directLinkRow.addView(copyDirectIcon, directIconLp);
+        accessCard.addView(directLinkRow, new LinearLayout.LayoutParams(-1, -2));
+
+        // Proxy group: IP input auto-saves; generated URL updates as the IP changes.
+        LinearLayout proxyCard = new LinearLayout(this);
+        proxyCard.setOrientation(LinearLayout.VERTICAL);
+        proxyCard.setPadding(dp(12), dp(12), dp(12), dp(12));
+        proxyCard.setBackground(makeBorderBackground(0xFFF0FAF0, 0xFF62B96B, 2, 7));
+        LinearLayout.LayoutParams proxyCardLp = new LinearLayout.LayoutParams(-1, -2);
+        proxyCardLp.topMargin = dp(10);
+        root.addView(proxyCard, proxyCardLp);
+
+        TextView proxyHeading = makeText("▤  PROXY (IP Proxy hoặc Tên miền)", 14, ink);
+        proxyHeading.setTypeface(null, android.graphics.Typeface.BOLD);
+        proxyCard.addView(proxyHeading, new LinearLayout.LayoutParams(-1, -2));
+
         TextView proxyLabel = makeText("IP PROXY", 13, ink);
         proxyLabel.setTypeface(null, android.graphics.Typeface.BOLD);
         LinearLayout.LayoutParams proxyLabelLp = new LinearLayout.LayoutParams(-1, -2);
-        proxyLabelLp.topMargin = dp(12);
-        accessCard.addView(proxyLabel, proxyLabelLp);
+        proxyLabelLp.topMargin = dp(10);
+        proxyCard.addView(proxyLabel, proxyLabelLp);
         proxyIpInput = createConfigInput(getSharedPreferences(PREFS_NAME, MODE_PRIVATE).getString(PREF_PROXY_IP, ""), "Ví dụ: 4.254.128.3", android.text.InputType.TYPE_CLASS_TEXT | android.text.InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS);
-        accessCard.addView(proxyIpInput, new LinearLayout.LayoutParams(-1, dp(46)));
+        proxyCard.addView(proxyIpInput, new LinearLayout.LayoutParams(-1, dp(46)));
+
         TextView proxyLinkLabel = makeText("LINK TRUY CẬP QUA PROXY", 13, ink);
         proxyLinkLabel.setTypeface(null, android.graphics.Typeface.BOLD);
         LinearLayout.LayoutParams proxyLinkLabelLp = new LinearLayout.LayoutParams(-1, -2);
         proxyLinkLabelLp.topMargin = dp(9);
-        accessCard.addView(proxyLinkLabel, proxyLinkLabelLp);
+        proxyCard.addView(proxyLinkLabel, proxyLinkLabelLp);
         proxyLinkView = makeText("Nhập IP Proxy để tạo link", 12, ink);
         proxyLinkView.setTypeface(android.graphics.Typeface.MONOSPACE, android.graphics.Typeface.BOLD);
         proxyLinkView.setGravity(Gravity.CENTER);
         proxyLinkView.setPadding(dp(8), dp(12), dp(8), dp(12));
         proxyLinkView.setBackground(makeBorderBackground(0xFFFFFFFF, line, 1, 4));
-        accessCard.addView(proxyLinkView, new LinearLayout.LayoutParams(-1, -2));
+        LinearLayout proxyLinkRow = new LinearLayout(this);
+        proxyLinkRow.setOrientation(LinearLayout.HORIZONTAL);
+        proxyLinkRow.setGravity(Gravity.CENTER_VERTICAL);
+        proxyLinkRow.addView(proxyLinkView, new LinearLayout.LayoutParams(0, -2, 1f));
+        TextView copyProxyIcon = makeCopyIconButton("Sao chép link Proxy", this::copyProxyLink);
+        LinearLayout.LayoutParams proxyIconLp = new LinearLayout.LayoutParams(dp(48), dp(48));
+        proxyIconLp.leftMargin = dp(7);
+        proxyLinkRow.addView(copyProxyIcon, proxyIconLp);
+        LinearLayout.LayoutParams proxyLinkRowLp = new LinearLayout.LayoutParams(-1, -2);
+        proxyLinkRowLp.topMargin = dp(5);
+        proxyCard.addView(proxyLinkRow, proxyLinkRowLp);
+
         proxyIpInput.addTextChangedListener(new android.text.TextWatcher() {
             @Override public void beforeTextChanged(CharSequence s, int start, int count, int after) { }
             @Override public void onTextChanged(CharSequence s, int start, int before, int count) {
@@ -288,28 +321,6 @@ public class MainActivity extends Activity {
             }
             @Override public void afterTextChanged(android.text.Editable e) { }
         });
-        Button copyProxyButton = new Button(this);
-        copyProxyButton.setText("▢  SAO CHÉP LINK PROXY");
-        copyProxyButton.setTextSize(android.util.TypedValue.COMPLEX_UNIT_DIP, 12);
-        copyProxyButton.setOnClickListener(v -> copyProxyLink());
-        LinearLayout.LayoutParams copyProxyLp = new LinearLayout.LayoutParams(-1, dp(46));
-        copyProxyLp.topMargin = dp(7);
-        accessCard.addView(copyProxyButton, copyProxyLp);
-
-        Button copyLinkButton = new Button(this);
-        copyLinkButton.setText("▢  SAO CHÉP LINK TRUY CẬP");
-        copyLinkButton.setTextSize(android.util.TypedValue.COMPLEX_UNIT_DIP, 12);
-        copyLinkButton.setOnClickListener(v -> copyGatewayLink(false));
-        LinearLayout.LayoutParams copyLinkLp = new LinearLayout.LayoutParams(-1, dp(46));
-        copyLinkLp.topMargin = dp(7);
-        accessCard.addView(copyLinkButton, copyLinkLp);
-        Button testModemButton = new Button(this);
-        testModemButton.setText("↗  KIỂM TRA KẾT NỐI MODEM");
-        testModemButton.setTextSize(android.util.TypedValue.COMPLEX_UNIT_DIP, 12);
-        testModemButton.setOnClickListener(v -> copyGatewayLink(true));
-        LinearLayout.LayoutParams testLp = new LinearLayout.LayoutParams(-1, dp(46));
-        testLp.topMargin = dp(6);
-        accessCard.addView(testModemButton, testLp);
 
         // Large bordered activity log; retains the 200-line rolling history.
         LinearLayout logCard = panelCard(root, "NHẬT KÝ HOẠT ĐỘNG", panel, ink);
@@ -382,6 +393,17 @@ public class MainActivity extends Activity {
         setContentView(page);
         refreshLogView();
         refreshDetails();
+    }
+
+    private TextView makeCopyIconButton(String description, Runnable action) {
+        TextView button = makeText("⧉", 25, 0xFFFFFFFF);
+        button.setGravity(Gravity.CENTER);
+        button.setContentDescription(description);
+        button.setFocusable(true);
+        button.setClickable(true);
+        button.setBackground(makeBorderBackground(0xFF087BD9, 0xFF087BD9, 1, 8));
+        button.setOnClickListener(v -> action.run());
+        return button;
     }
 
     private LinearLayout panelCard(LinearLayout parent, String heading, int fill, int ink) {
