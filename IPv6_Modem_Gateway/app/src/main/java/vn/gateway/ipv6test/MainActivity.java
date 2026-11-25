@@ -19,6 +19,8 @@ import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.Button;
+import android.widget.RadioButton;
+import android.content.res.ColorStateList;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.TextView;
@@ -68,14 +70,25 @@ public class MainActivity extends Activity {
     private static final int UI_INK = 0xFF222222;
     private volatile int gatewayPort = 8080;
     private volatile int modemPort = 443;
+    private volatile int httpModemPort = 80;
+    private volatile int httpsModemPort = 443;
+    private volatile String modemProtocol = "https";
     private static final String PREFS_NAME = "gateway_settings";
     private static final String PREF_MODEM_IP = "modem_ip";
-    private static final String PREF_MODEM_PORT = "modem_port";
+    private static final String PREF_MODEM_PORT = "modem_port"; // tương thích cấu hình cũ
+    private static final String PREF_HTTP_MODEM_PORT = "http_modem_port";
+    private static final String PREF_HTTPS_MODEM_PORT = "https_modem_port";
+    private static final String PREF_MODEM_PROTOCOL = "modem_protocol";
     private static final String PREF_GATEWAY_PORT = "gateway_port";
     private static final String PREF_PROXY_IP = "proxy_ip";
     private volatile String modemHost = "192.168.1.1";
     private android.widget.EditText modemIpInput;
-    private android.widget.EditText modemPortInput;
+    private android.widget.EditText httpPortInput;
+    private android.widget.EditText httpsPortInput;
+    private RadioButton httpRadio;
+    private RadioButton httpsRadio;
+    private LinearLayout httpProtocolRow;
+    private LinearLayout httpsProtocolRow;
     private android.widget.EditText cellularIpv6Input;
     private android.widget.EditText gatewayPortInput;
     private android.widget.EditText proxyIpInput;
@@ -130,7 +143,10 @@ public class MainActivity extends Activity {
         cm = (ConnectivityManager) getSystemService(Context.CONNECTIVITY_SERVICE);
         android.content.SharedPreferences prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
         modemHost = prefs.getString(PREF_MODEM_IP, "192.168.1.1");
-        modemPort = prefs.getInt(PREF_MODEM_PORT, 443);
+        modemProtocol = prefs.getString(PREF_MODEM_PROTOCOL, prefs.contains(PREF_MODEM_PORT) ? "https" : "http");
+        httpModemPort = prefs.getInt(PREF_HTTP_MODEM_PORT, 80);
+        httpsModemPort = prefs.getInt(PREF_HTTPS_MODEM_PORT, prefs.getInt(PREF_MODEM_PORT, 443));
+        modemPort = "http".equals(modemProtocol) ? httpModemPort : httpsModemPort;
         gatewayPort = prefs.getInt(PREF_GATEWAY_PORT, 8080);
         // Bounded worker pool: prevent unbounded thread creation from inbound clients.
         // CallerRunsPolicy applies back-pressure to the accept loop when the queue is full.
@@ -220,7 +236,17 @@ public class MainActivity extends Activity {
         // Four requested settings, in the exact agreed order.
         LinearLayout configCard = panelCard(root, "CẤU HÌNH KẾT NỐI", panel, ink);
         modemIpInput = createConfigInput(modemHost, "Ví dụ: 192.168.1.1", android.text.InputType.TYPE_CLASS_TEXT | android.text.InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS);
-        modemPortInput = createConfigInput(String.valueOf(modemPort), "443", android.text.InputType.TYPE_CLASS_NUMBER);
+        httpPortInput = createConfigInput(String.valueOf(httpModemPort), "80", android.text.InputType.TYPE_CLASS_NUMBER);
+        httpsPortInput = createConfigInput(String.valueOf(httpsModemPort), "443", android.text.InputType.TYPE_CLASS_NUMBER);
+        httpProtocolRow = createProtocolPortRow("HTTP", httpPortInput, true);
+        httpsProtocolRow = createProtocolPortRow("HTTPS", httpsPortInput, false);
+        httpRadio = (RadioButton) httpProtocolRow.getTag();
+        httpsRadio = (RadioButton) httpsProtocolRow.getTag();
+        httpRadio.setId(View.generateViewId());
+        httpsRadio.setId(View.generateViewId());
+        httpRadio.setChecked("http".equals(modemProtocol));
+        httpsRadio.setChecked("https".equals(modemProtocol));
+        updateProtocolRowStyles();
         cellularIpv6Input = createConfigInput("Chưa có IPv6", "IPv6 Cellular tự động hiển thị", android.text.InputType.TYPE_CLASS_TEXT);
         cellularIpv6Input.setFocusable(false);
         cellularIpv6Input.setFocusableInTouchMode(false);
@@ -230,7 +256,9 @@ public class MainActivity extends Activity {
         cellularIpv6Input.setBackground(makeBorderBackground(0xFFEAEAEA, line, 1, 4));
         gatewayPortInput = createConfigInput(String.valueOf(gatewayPort), "8080", android.text.InputType.TYPE_CLASS_NUMBER);
         addConfigRow(configCard, "1. IP MODEM", modemIpInput);
-        addConfigRow(configCard, "2. PORT HTTPS MODEM", modemPortInput);
+        addConfigField(configCard, "2. GIAO THỨC MODEM", null);
+        configCard.addView(httpProtocolRow, new LinearLayout.LayoutParams(-1, dp(76)));
+        configCard.addView(httpsProtocolRow, new LinearLayout.LayoutParams(-1, dp(76)));
         addConfigRow(configCard, "3. IPv6 ANDROID A", cellularIpv6Input);
         addConfigRow(configCard, "4. PORT TCP TUNNEL IPv6", gatewayPortInput);
         Button saveButton = new Button(this);
@@ -254,65 +282,32 @@ public class MainActivity extends Activity {
         details.setTextIsSelectable(true);
         infoCard.addView(details, new LinearLayout.LayoutParams(-1, -2));
 
-        LinearLayout accessCard = panelCard(root, "LINK TRUY CẬP TRỰC TIẾP", panel, ink);
-        accessLinkView = makeText("https://[IPv6 ANDROID A]:" + gatewayPort + "/", 14, ink);
+        LinearLayout accessCard = panelCard(root, "ĐỊA CHỈ TRUY CẬP MODEM TỪ ANDROID B", panel, ink);
+        accessLinkView = makeText(getModemScheme() + "://[IPv6 ANDROID A]:" + gatewayPort + "/", 14, ink);
         accessLinkView.setTypeface(android.graphics.Typeface.MONOSPACE, android.graphics.Typeface.BOLD);
         accessLinkView.setGravity(Gravity.CENTER);
         accessLinkView.setPadding(dp(8), dp(14), dp(8), dp(14));
         accessLinkView.setBackground(makeBorderBackground(0xFFFFFFFF, line, 1, 4));
-        LinearLayout directLinkRow = new LinearLayout(this);
-        directLinkRow.setOrientation(LinearLayout.HORIZONTAL);
-        directLinkRow.setGravity(Gravity.CENTER_VERTICAL);
-        directLinkRow.addView(accessLinkView, new LinearLayout.LayoutParams(0, -2, 1f));
-        TextView copyDirectIcon = makeCopyIconButton("Sao chép link truy cập trực tiếp", () -> copyGatewayLink(false));
-        LinearLayout.LayoutParams directIconLp = new LinearLayout.LayoutParams(dp(48), dp(48));
-        directIconLp.leftMargin = dp(7);
-        directLinkRow.addView(copyDirectIcon, directIconLp);
-        accessCard.addView(directLinkRow, new LinearLayout.LayoutParams(-1, -2));
-
-        // Proxy group: IP input auto-saves; generated URL updates as the IP changes.
-        LinearLayout proxyCard = new LinearLayout(this);
-        proxyCard.setOrientation(LinearLayout.VERTICAL);
-        proxyCard.setPadding(dp(12), dp(12), dp(12), dp(12));
-        proxyCard.setBackground(makeBorderBackground(0xFFF0FAF0, 0xFF62B96B, 2, 7));
-        LinearLayout.LayoutParams proxyCardLp = new LinearLayout.LayoutParams(-1, -2);
-        proxyCardLp.topMargin = dp(10);
-        root.addView(proxyCard, proxyCardLp);
-
-        TextView proxyHeading = makeText("▤  PROXY (IP Proxy hoặc Tên miền)", 14, ink);
-        proxyHeading.setTypeface(null, android.graphics.Typeface.BOLD);
-        proxyCard.addView(proxyHeading, new LinearLayout.LayoutParams(-1, -2));
-
+        accessCard.addView(accessLinkView, new LinearLayout.LayoutParams(-1, -2));
+        // Proxy address is configurable here; later it can be changed to a domain name.
         TextView proxyLabel = makeText("IP PROXY", 13, ink);
         proxyLabel.setTypeface(null, android.graphics.Typeface.BOLD);
         LinearLayout.LayoutParams proxyLabelLp = new LinearLayout.LayoutParams(-1, -2);
-        proxyLabelLp.topMargin = dp(10);
-        proxyCard.addView(proxyLabel, proxyLabelLp);
+        proxyLabelLp.topMargin = dp(12);
+        accessCard.addView(proxyLabel, proxyLabelLp);
         proxyIpInput = createConfigInput(getSharedPreferences(PREFS_NAME, MODE_PRIVATE).getString(PREF_PROXY_IP, ""), "Ví dụ: 4.254.128.3", android.text.InputType.TYPE_CLASS_TEXT | android.text.InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS);
-        proxyCard.addView(proxyIpInput, new LinearLayout.LayoutParams(-1, dp(46)));
-
+        accessCard.addView(proxyIpInput, new LinearLayout.LayoutParams(-1, dp(46)));
         TextView proxyLinkLabel = makeText("LINK TRUY CẬP QUA PROXY", 13, ink);
         proxyLinkLabel.setTypeface(null, android.graphics.Typeface.BOLD);
         LinearLayout.LayoutParams proxyLinkLabelLp = new LinearLayout.LayoutParams(-1, -2);
         proxyLinkLabelLp.topMargin = dp(9);
-        proxyCard.addView(proxyLinkLabel, proxyLinkLabelLp);
+        accessCard.addView(proxyLinkLabel, proxyLinkLabelLp);
         proxyLinkView = makeText("Nhập IP Proxy để tạo link", 12, ink);
         proxyLinkView.setTypeface(android.graphics.Typeface.MONOSPACE, android.graphics.Typeface.BOLD);
         proxyLinkView.setGravity(Gravity.CENTER);
         proxyLinkView.setPadding(dp(8), dp(12), dp(8), dp(12));
         proxyLinkView.setBackground(makeBorderBackground(0xFFFFFFFF, line, 1, 4));
-        LinearLayout proxyLinkRow = new LinearLayout(this);
-        proxyLinkRow.setOrientation(LinearLayout.HORIZONTAL);
-        proxyLinkRow.setGravity(Gravity.CENTER_VERTICAL);
-        proxyLinkRow.addView(proxyLinkView, new LinearLayout.LayoutParams(0, -2, 1f));
-        TextView copyProxyIcon = makeCopyIconButton("Sao chép link Proxy", this::copyProxyLink);
-        LinearLayout.LayoutParams proxyIconLp = new LinearLayout.LayoutParams(dp(48), dp(48));
-        proxyIconLp.leftMargin = dp(7);
-        proxyLinkRow.addView(copyProxyIcon, proxyIconLp);
-        LinearLayout.LayoutParams proxyLinkRowLp = new LinearLayout.LayoutParams(-1, -2);
-        proxyLinkRowLp.topMargin = dp(5);
-        proxyCard.addView(proxyLinkRow, proxyLinkRowLp);
-
+        accessCard.addView(proxyLinkView, new LinearLayout.LayoutParams(-1, -2));
         proxyIpInput.addTextChangedListener(new android.text.TextWatcher() {
             @Override public void beforeTextChanged(CharSequence s, int start, int count, int after) { }
             @Override public void onTextChanged(CharSequence s, int start, int before, int count) {
@@ -321,6 +316,28 @@ public class MainActivity extends Activity {
             }
             @Override public void afterTextChanged(android.text.Editable e) { }
         });
+        Button copyProxyButton = new Button(this);
+        copyProxyButton.setText("▢  SAO CHÉP LINK PROXY");
+        copyProxyButton.setTextSize(android.util.TypedValue.COMPLEX_UNIT_DIP, 12);
+        copyProxyButton.setOnClickListener(v -> copyProxyLink());
+        LinearLayout.LayoutParams copyProxyLp = new LinearLayout.LayoutParams(-1, dp(46));
+        copyProxyLp.topMargin = dp(7);
+        accessCard.addView(copyProxyButton, copyProxyLp);
+
+        Button copyLinkButton = new Button(this);
+        copyLinkButton.setText("▢  SAO CHÉP LINK TRUY CẬP");
+        copyLinkButton.setTextSize(android.util.TypedValue.COMPLEX_UNIT_DIP, 12);
+        copyLinkButton.setOnClickListener(v -> copyGatewayLink(false));
+        LinearLayout.LayoutParams copyLinkLp = new LinearLayout.LayoutParams(-1, dp(46));
+        copyLinkLp.topMargin = dp(7);
+        accessCard.addView(copyLinkButton, copyLinkLp);
+        Button testModemButton = new Button(this);
+        testModemButton.setText("↗  KIỂM TRA KẾT NỐI MODEM");
+        testModemButton.setTextSize(android.util.TypedValue.COMPLEX_UNIT_DIP, 12);
+        testModemButton.setOnClickListener(v -> copyGatewayLink(true));
+        LinearLayout.LayoutParams testLp = new LinearLayout.LayoutParams(-1, dp(46));
+        testLp.topMargin = dp(6);
+        accessCard.addView(testModemButton, testLp);
 
         // Large bordered activity log; retains the 200-line rolling history.
         LinearLayout logCard = panelCard(root, "NHẬT KÝ HOẠT ĐỘNG", panel, ink);
@@ -383,7 +400,7 @@ public class MainActivity extends Activity {
         logActionsLp.topMargin = dp(8);
         logCard.addView(logActions, logActionsLp);
 
-        TextView warning = makeText("LƯU Ý: Android A chuyển tiếp TCP nguyên bản; HTTPS chạy xuyên suốt tới modem. Trình duyệt Android B có thể cảnh báo chứng chỉ modem tự ký/không khớp địa chỉ.", 11, muted);
+        TextView warning = makeText("LƯU Ý: Android A chuyển tiếp TCP nguyên bản. Android B phải truy cập đúng giao thức HTTP/HTTPS đã chọn; HTTPS có thể cảnh báo chứng chỉ modem tự ký/không khớp địa chỉ.", 11, muted);
         warning.setPadding(dp(10), dp(8), dp(10), dp(8));
         warning.setBackground(makeBorderBackground(0xFFF7F7F7, line, 1, 4));
         LinearLayout.LayoutParams warningLp = new LinearLayout.LayoutParams(-1, -2);
@@ -393,17 +410,6 @@ public class MainActivity extends Activity {
         setContentView(page);
         refreshLogView();
         refreshDetails();
-    }
-
-    private TextView makeCopyIconButton(String description, Runnable action) {
-        TextView button = makeText("⧉", 25, 0xFFFFFFFF);
-        button.setGravity(Gravity.CENTER);
-        button.setContentDescription(description);
-        button.setFocusable(true);
-        button.setClickable(true);
-        button.setBackground(makeBorderBackground(0xFF087BD9, 0xFF087BD9, 1, 8));
-        button.setOnClickListener(v -> action.run());
-        return button;
     }
 
     private LinearLayout panelCard(LinearLayout parent, String heading, int fill, int ink) {
@@ -463,50 +469,129 @@ public class MainActivity extends Activity {
         return input;
     }
 
+    private LinearLayout createProtocolPortRow(String protocol, android.widget.EditText portInput, boolean selected) {
+        final int green = 0xFF00C853;
+        final int gray = 0xFF777777;
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        row.setPadding(dp(10), dp(7), dp(10), dp(7));
+        row.setBackground(makeBorderBackground(0xFF050505, selected ? green : gray, selected ? 2 : 1, 14));
+        LinearLayout.LayoutParams rowLp = new LinearLayout.LayoutParams(-1, dp(76));
+        rowLp.topMargin = dp(5);
+        row.setLayoutParams(rowLp);
+
+        RadioButton radio = new RadioButton(this);
+        radio.setText("");
+        radio.setButtonTintList(new ColorStateList(
+                new int[][]{new int[]{android.R.attr.state_checked}, new int[]{}},
+                new int[]{green, 0xFFFFFFFF}));
+        radio.setId(View.generateViewId());
+        row.addView(radio, new LinearLayout.LayoutParams(dp(42), dp(48)));
+
+        TextView name = makeText(protocol, 18, 0xFFFFFFFF);
+        name.setTypeface(null, android.graphics.Typeface.BOLD);
+        LinearLayout.LayoutParams nameLp = new LinearLayout.LayoutParams(dp(94), -2);
+        row.addView(name, nameLp);
+
+        View separator = new View(this);
+        separator.setBackgroundColor(0xFF555555);
+        LinearLayout.LayoutParams sepLp = new LinearLayout.LayoutParams(dp(1), dp(44));
+        sepLp.leftMargin = dp(5);
+        sepLp.rightMargin = dp(10);
+        row.addView(separator, sepLp);
+
+        TextView portLabel = makeText("Port:", 14, 0xFFFFFFFF);
+        row.addView(portLabel, new LinearLayout.LayoutParams(-2, -2));
+        LinearLayout.LayoutParams inputLp = new LinearLayout.LayoutParams(0, dp(44), 1);
+        inputLp.leftMargin = dp(8);
+        portInput.setTextSize(android.util.TypedValue.COMPLEX_UNIT_DIP, 17);
+        portInput.setTextColor(0xFFFFFFFF);
+        portInput.setPadding(dp(10), 0, dp(8), 0);
+        portInput.setSingleLine(true);
+        portInput.setBackground(makeBorderBackground(0xFF050505, selected ? green : gray, 1, 10));
+        row.addView(portInput, inputLp);
+        radio.setOnClickListener(v -> selectModemProtocol(protocol));
+        row.setOnClickListener(v -> selectModemProtocol(protocol));
+        portInput.setOnFocusChangeListener((v, hasFocus) -> { if (hasFocus) selectModemProtocol(protocol); });
+        row.setTag(radio);
+        return row;
+    }
+
+    private void selectModemProtocol(String protocol) {
+        modemProtocol = protocol;
+        if (httpRadio != null) httpRadio.setChecked("http".equals(protocol));
+        if (httpsRadio != null) httpsRadio.setChecked("https".equals(protocol));
+        updateProtocolRowStyles();
+    }
+
+    private void updateProtocolRowStyles() {
+        if (httpRadio == null || httpsRadio == null) return;
+        boolean httpSelected = httpRadio.isChecked();
+        int green = 0xFF00C853;
+        int gray = 0xFF777777;
+        httpProtocolRow.setBackground(makeBorderBackground(0xFF050505, httpSelected ? green : gray, httpSelected ? 2 : 1, 14));
+        httpsProtocolRow.setBackground(makeBorderBackground(0xFF050505, httpSelected ? gray : green, httpSelected ? 1 : 2, 14));
+        httpPortInput.setBackground(makeBorderBackground(0xFF050505, httpSelected ? green : gray, 1, 10));
+        httpsPortInput.setBackground(makeBorderBackground(0xFF050505, httpSelected ? gray : green, 1, 10));
+    }
+
+    private String getModemScheme() { return "http".equals(modemProtocol) ? "http" : "https"; }
+
     private void addConfigField(LinearLayout parent, String label, android.widget.EditText input) {
         TextView title = makeText(label, 11, UI_INK);
         title.setTypeface(null, android.graphics.Typeface.BOLD);
         LinearLayout.LayoutParams titleLp = new LinearLayout.LayoutParams(-1, -2);
         titleLp.topMargin = dp(9);
         parent.addView(title, titleLp);
-        LinearLayout.LayoutParams inputLp = new LinearLayout.LayoutParams(-1, dp(42));
-        inputLp.topMargin = dp(3);
-        parent.addView(input, inputLp);
+        if (input != null) {
+            LinearLayout.LayoutParams inputLp = new LinearLayout.LayoutParams(-1, dp(42));
+            inputLp.topMargin = dp(3);
+            parent.addView(input, inputLp);
+        }
     }
 
     private boolean applyConnectionSettingsFromInputs() {
         String ip = modemIpInput == null ? modemHost : modemIpInput.getText().toString().trim();
-        int mp, gp;
+        int hp, sp, gp;
+        String protocol = httpRadio != null && httpRadio.isChecked() ? "http" : "https";
         try {
-            mp = Integer.parseInt(modemPortInput == null ? String.valueOf(modemPort) : modemPortInput.getText().toString().trim());
+            hp = Integer.parseInt(httpPortInput == null ? String.valueOf(httpModemPort) : httpPortInput.getText().toString().trim());
+            sp = Integer.parseInt(httpsPortInput == null ? String.valueOf(httpsModemPort) : httpsPortInput.getText().toString().trim());
             gp = Integer.parseInt(gatewayPortInput == null ? String.valueOf(gatewayPort) : gatewayPortInput.getText().toString().trim());
         } catch (Exception e) {
-            android.widget.Toast.makeText(this, "Cổng phải là số từ 1 đến 65535.", android.widget.Toast.LENGTH_LONG).show();
+            android.widget.Toast.makeText(this, "Port phải là số từ 1 đến 65535.", android.widget.Toast.LENGTH_LONG).show();
             return false;
         }
         if (!isPrivateIpv4(ip)) {
             if (modemIpInput != null) modemIpInput.setError("Nhập IPv4 nội bộ hợp lệ");
             return false;
         }
-        if (mp < 1 || mp > 65535 || gp < 1 || gp > 65535) {
-            android.widget.Toast.makeText(this, "Cổng phải nằm trong khoảng 1–65535.", android.widget.Toast.LENGTH_LONG).show();
+        if (hp < 1 || hp > 65535 || sp < 1 || sp > 65535 || gp < 1 || gp > 65535) {
+            android.widget.Toast.makeText(this, "Các Port phải nằm trong khoảng 1–65535.", android.widget.Toast.LENGTH_LONG).show();
             return false;
         }
         modemHost = ip;
-        modemPort = mp;
+        httpModemPort = hp;
+        httpsModemPort = sp;
+        modemProtocol = protocol;
+        modemPort = "http".equals(modemProtocol) ? httpModemPort : httpsModemPort;
         gatewayPort = gp;
         getSharedPreferences(PREFS_NAME, MODE_PRIVATE).edit()
                 .putString(PREF_MODEM_IP, modemHost)
+                .putString(PREF_MODEM_PROTOCOL, modemProtocol)
+                .putInt(PREF_HTTP_MODEM_PORT, httpModemPort)
+                .putInt(PREF_HTTPS_MODEM_PORT, httpsModemPort)
                 .putInt(PREF_MODEM_PORT, modemPort)
                 .putInt(PREF_GATEWAY_PORT, gatewayPort).apply();
         if (modemIpInput != null) modemIpInput.setError(null);
         refreshDetails();
-        log("CONFIG", "Đã lưu modem https://" + modemHost + ":" + modemPort + " ; Gateway IPv6 :" + gatewayPort);
+        log("CONFIG", "Đã lưu modem " + getModemScheme() + "://" + modemHost + ":" + modemPort + " ; Gateway IPv6 :" + gatewayPort);
         return true;
     }
 
     private boolean applyModemIpFromInput() {
-        if (modemPortInput != null && gatewayPortInput != null) return applyConnectionSettingsFromInputs();
+        if (httpPortInput != null && httpsPortInput != null && gatewayPortInput != null) return applyConnectionSettingsFromInputs();
         String value = modemIpInput == null ? modemHost : modemIpInput.getText().toString().trim();
         if (!isPrivateIpv4(value)) {
             if (modemIpInput != null) modemIpInput.setError("Nhập IPv4 nội bộ hợp lệ, ví dụ 192.168.1.1");
@@ -519,7 +604,7 @@ public class MainActivity extends Activity {
         getSharedPreferences(PREFS_NAME, MODE_PRIVATE).edit().putString(PREF_MODEM_IP, modemHost).apply();
         if (modemIpInput != null) modemIpInput.setError(null);
         refreshDetails();
-        log("MODEM_CONFIG", "Đã lưu IP modem " + modemHost + ":" + modemPort);
+        log("MODEM_CONFIG", "Đã lưu IP modem " + getModemScheme() + "://" + modemHost + ":" + modemPort);
         return true;
     }
 
@@ -542,7 +627,7 @@ public class MainActivity extends Activity {
 
     private void startNetworks() {
         if (!applyModemIpFromInput()) return;
-        log("START", "Người dùng nhấn KHỞI ĐỘNG GATEWAY; modem=" + modemHost + ":" + modemPort);
+        log("START", "Người dùng nhấn KHỞI ĐỘNG GATEWAY; modem=" + getModemScheme() + "://" + modemHost + ":" + modemPort);
 
         try {
             Intent serviceIntent = new Intent(this, GatewayService.class);
@@ -842,41 +927,41 @@ public class MainActivity extends Activity {
     }
 
     private String testModemOverWifi() {
-        log("MODEM", "Bắt đầu thử kết nối HTTPS tới " + modemHost + ":" + modemPort);
+        final boolean useHttps = "https".equals(modemProtocol);
+        log("MODEM", "Bắt đầu thử kết nối " + getModemScheme().toUpperCase(Locale.ROOT) + " tới " + modemHost + ":" + modemPort);
         Network wifi = wifiNetwork;
         if (wifi == null) return "ERROR: Chưa phát hiện Wi-Fi. Hãy kết nối Wi-Fi modem.\n";
         Socket raw = null;
         SSLSocket tls = null;
         try {
-            // SocketFactory from this Network ensures this outbound socket uses Wi-Fi,
-            // independently of the phone's default network.
             raw = wifi.getSocketFactory().createSocket();
             raw.connect(new InetSocketAddress(modemHost, modemPort), 5000);
-            // Chỉ dùng SSL bỏ qua chứng chỉ cho kết nối modem nội bộ này.
-            // Socket TCP ban đầu vẫn được tạo từ wifi.getSocketFactory(), vì vậy
-            // lưu lượng đi qua Wi-Fi; không thay đổi cấu hình mạng toàn ứng dụng.
-            tls = (SSLSocket) createModemOnlySslSocketFactory()
-                    .createSocket(raw, modemHost, modemPort, true);
-            tls.setSoTimeout(5000);
-            log("MODEM", "TCP tới modem thành công; bắt đầu TLS handshake (bỏ qua chứng chỉ riêng modem)");
-            tls.startHandshake();
-            log("MODEM", "TLS handshake thành công với modem (certificate verification skipped for modem only)");
-            OutputStream out = tls.getOutputStream();
+            Socket requestSocket = raw;
+            if (useHttps) {
+                // Chỉ bỏ qua chứng chỉ tự ký cho HTTPS modem nội bộ này.
+                tls = (SSLSocket) createModemOnlySslSocketFactory().createSocket(raw, modemHost, modemPort, true);
+                tls.setSoTimeout(5000);
+                log("MODEM", "TCP tới modem thành công; bắt đầu TLS handshake");
+                tls.startHandshake();
+                requestSocket = tls;
+                log("MODEM", "TLS handshake thành công với modem");
+            } else {
+                raw.setSoTimeout(5000);
+                log("MODEM", "Kết nối HTTP qua TCP thành công; gửi HTTP request");
+            }
+            OutputStream out = requestSocket.getOutputStream();
             out.write(("GET / HTTP/1.1\r\nHost: " + modemHost +
                     "\r\nConnection: close\r\n\r\n").getBytes(StandardCharsets.US_ASCII));
             out.flush();
-            BufferedReader reader = new BufferedReader(new InputStreamReader(
-                    tls.getInputStream(), StandardCharsets.UTF_8));
+            BufferedReader reader = new BufferedReader(new InputStreamReader(requestSocket.getInputStream(), StandardCharsets.UTF_8));
             String first = reader.readLine();
-            return "OK: Wi-Fi đã kết nối được HTTPS modem.\n" +
-                    "Modem response: " + first + "\n";
+            return "OK: Wi-Fi đã kết nối được " + getModemScheme().toUpperCase(Locale.ROOT) + " modem.\nModem response: " + first + "\n";
         } catch (javax.net.ssl.SSLHandshakeException e) {
             logException("MODEM_TLS", e);
             return "ERROR: Không hoàn tất được TLS với modem: " + e.getMessage() + "\n";
         } catch (Exception e) {
             logException("MODEM_TEST", e);
-            return "ERROR: Không kết nối được modem qua Wi-Fi: " +
-                    e.getClass().getSimpleName() + " - " + e.getMessage() + "\n";
+            return "ERROR: Không kết nối được modem qua Wi-Fi: " + e.getClass().getSimpleName() + " - " + e.getMessage() + "\n";
         } finally {
             try { if (tls != null) tls.close(); else if (raw != null) raw.close(); } catch (Exception ignored) {}
         }
@@ -940,10 +1025,10 @@ public class MainActivity extends Activity {
         String host = ip.getHostAddress();
         int zone = host.indexOf('%');
         if (zone >= 0) host = host.substring(0, zone);
-        String url = "https://[" + host + "]:" + gatewayPort + "/";
+        String url = getModemScheme() + "://[" + host + "]:" + gatewayPort + "/";
         android.content.ClipboardManager cb = (android.content.ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
         cb.setPrimaryClip(android.content.ClipData.newPlainText("Gateway URL", url));
-        log("COPY_LINK", "Đã sao chép " + (modemTest ? "link kiểm tra modem" : "link TCP Tunnel") + " (HTTPS)");
+        log("COPY_LINK", "Đã sao chép " + (modemTest ? "link kiểm tra modem" : "link TCP Tunnel") + " (" + getModemScheme().toUpperCase(Locale.ROOT) + ")");
         android.widget.Toast.makeText(this, "Đã sao chép toàn bộ link", android.widget.Toast.LENGTH_SHORT).show();
     }
 
@@ -955,10 +1040,10 @@ public class MainActivity extends Activity {
             String ipv6Text = cellularIpv6 == null ? "Chưa tìm thấy IPv6 global" : cellularIpv6.getHostAddress();
             b.append("IPv6 Cellular: ").append(ipv6Text).append("\n");
             if (cellularIpv6Input != null) cellularIpv6Input.setText(ipv6Text);
-            if (accessLinkView != null) accessLinkView.setText("https://[" + (cellularIpv6 == null ? "IPv6 ANDROID A" : cellularIpv6.getHostAddress()) + "]:" + gatewayPort + "/");
+            if (accessLinkView != null) accessLinkView.setText(getModemScheme() + "://[" + (cellularIpv6 == null ? "IPv6 ANDROID A" : cellularIpv6.getHostAddress()) + "]:" + gatewayPort + "/");
             refreshProxyLink();
             b.append("Wi-Fi: ").append(wifiNetwork == null ? "Chưa phát hiện" : "Đã phát hiện").append("\n");
-            b.append("Modem đích: ").append(modemHost).append(":").append(modemPort).append(" (qua Wi-Fi)\n");
+            b.append("Modem đích: ").append(getModemScheme()).append("://").append(modemHost).append(":").append(modemPort).append(" (qua Wi-Fi)\n");
             b.append("TCP Tunnel: ").append(running ? "Đang chạy" : "Chưa chạy").append(" :").append(gatewayPort).append("\n");
             b.append("Xác thực: Tắt Token (truy cập trực tiếp)");
             details.setText(b.toString());
